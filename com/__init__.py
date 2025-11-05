@@ -3,6 +3,7 @@ import logging
 import os
 from logging.handlers import RotatingFileHandler
 
+
 def _setup_logging(log_path: str = "/log/binance.log",
                    level: int = logging.INFO,
                    max_bytes: int = 5 * 1024 * 1024,
@@ -35,6 +36,7 @@ def _setup_logging(log_path: str = "/log/binance.log",
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
+
 
 # 啟動時呼叫設定
 _setup_logging()

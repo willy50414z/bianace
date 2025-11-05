@@ -4,6 +4,7 @@ from decimal import Decimal
 
 @dataclass
 class HedgeTradePriceAmt:
-    price: int
+    price: Decimal
     buy_amt: Decimal
     sellAmt: Decimal
+    has_trade: bool

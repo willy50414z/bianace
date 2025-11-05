@@ -9,11 +9,15 @@ from binance import Client
 from com.willy.binance.config.config_util import config_util
 from com.willy.binance.dto.binance_kline import BinanceKline
 from com.willy.binance.dto.hedge_trade_price_amt import HedgeTradePriceAmt
+from com.willy.binance.enum import trade_type
 from com.willy.binance.enum.binance_product import BinanceProduct
+from com.willy.binance.enum.handle_fee_type import HandleFeeType
+from com.willy.binance.enum.trade_type import TradeType
+from com.willy.binance.service import trade_svc
 from com.willy.binance.util import type_util
 
 
-def calculate_first_layer_invest_amt(total_invest_amt: int, level_gap: float, levels: int):
+def calc_first_layer_invest_amt(total_invest_amt: int, level_gap: float, levels: int):
     single_side_invest_amt = total_invest_amt / 2
     if levels <= 0:
         return 0.0
@@ -22,15 +26,40 @@ def calculate_first_layer_invest_amt(total_invest_amt: int, level_gap: float, le
     return round(single_side_invest_amt * (1 - level_gap) / (1 - level_gap ** levels))
 
 
+def calc_profit(current_price, avg_price, total_amt, fee_rate=0.0004):
+    """
+    計算損益 (USDT)
+    :param current_price: 現價
+    :param avg_price: 開倉均價
+    :param total_amt: 倉位金額 (USDT)
+    :param fee_rate: 手續費率 (預設 0.0004 即 0.04%)
+    """
+    y = (total_amt / avg_price) * (current_price * (1 - fee_rate) - avg_price)
+    return y
+
+
+def calc_current_price(y, avg_price, total_amt):
+    """
+    根據損益反推現價
+    :param y: 損益 (USDT)
+    :param avg_price: 開倉均價
+    :param total_amt: 倉位金額 (USDT)
+    :return: 現價 (current_price)
+    """
+    current_price = (avg_price * (1 + y / total_amt)) / 0.9996
+    return current_price
+
+
 class BinanceSvc:
     config = config_util("binance.acct.hedgebuy")
     client = Client(config.get("apikey"), config.get("privatekey"))
 
     def get_historical_klines(self, binance_product: BinanceProduct, kline_interval=Client.KLINE_INTERVAL_1DAY,
-                              start_date_yyyymmdd="19700101", end_date_yyyymmdd="20300101"):
+                              start_date: datetime = type_util.str_to_datetime("20250101"),
+                              end_date: datetime = type_util.str_to_datetime("20250105")):
         klines = self.client.get_historical_klines(binance_product.name, kline_interval,
-                                                   type_util.str_date_to_timestamp(start_date_yyyymmdd),
-                                                   type_util.str_date_to_timestamp(end_date_yyyymmdd))
+                                                   int(start_date.timestamp() * 1000),
+                                                   int(end_date.timestamp() * 1000))
         kline_list = []
         for kline in klines:
             kline_list.append(
@@ -96,12 +125,12 @@ class BinanceSvc:
         first_layer_invest_amt = 0
         if level_amt_change.endswith("%"):
             level_change_percent = float(level_amt_change[:len(level_amt_change) - 1])
-            first_layer_invest_amt = calculate_first_layer_invest_amt(invest_amt*leverage_ratio, level_change_percent,
-                                             len(trade_price_list))
+            first_layer_invest_amt = calc_first_layer_invest_amt(invest_amt * leverage_ratio, level_change_percent,
+                                                                 len(trade_price_list))
             last_layer_invest_amt = first_layer_invest_amt
             for i in range(len(trade_price_list)):
                 invest_amt_list.append(Decimal(last_layer_invest_amt))
-                last_layer_invest_amt = math.floor(last_layer_invest_amt*level_change_percent)
+                last_layer_invest_amt = math.floor(last_layer_invest_amt * level_change_percent)
         else:
             raise ValueError(f"level_amt_change should end with '%' but level_amt_change[{level_amt_change}]")
 
@@ -109,17 +138,37 @@ class BinanceSvc:
         hedge_trade_price_amt_list = []
         for i in range(len(trade_price_list)):
             hedge_trade_price_amt_list.append(
-                HedgeTradePriceAmt(trade_price_list[i], invest_amt_list[len(trade_price_list) - i - 1], invest_amt_list[i]))
-
-        logging.info(sum(invest_amt_list))
+                HedgeTradePriceAmt(Decimal(trade_price_list[i]), invest_amt_list[len(trade_price_list) - i - 1],
+                                   invest_amt_list[i], False))
 
         logging.info("      \tbuy amt\tsell amt")
         for hedge_trade_price_amt in hedge_trade_price_amt_list:
-            logging.info(f"{hedge_trade_price_amt.price}\t{hedge_trade_price_amt.buy_amt}\t{hedge_trade_price_amt.sellAmt}")
+            logging.info(
+                f"{hedge_trade_price_amt.price}\t{hedge_trade_price_amt.buy_amt}\t{hedge_trade_price_amt.sellAmt}")
+
+        daily_kline_list = self.get_historical_klines(binance_product, start_date=start_time, end_date=end_time)
+
+        buy_acct_trade_record = []
+        sell_acct_trade_record = []
+        for daily_kline in daily_kline_list:
+            # 逐日確定是否觸發交易
+            logging.info(daily_kline)
+            for hedge_trade_price_amt in hedge_trade_price_amt_list:
+                if not hedge_trade_price_amt.has_trade and daily_kline.high > hedge_trade_price_amt.price and daily_kline.low < hedge_trade_price_amt.price:
+                    # five_minutes_kline_list = self.get_historical_klines(binance_product, Client.KLINE_INTERVAL_5MINUTE, start_date=daily_kline.start_time, end_date=daily_kline.end_time)
+                    # 觸發交易時紀錄交易紀錄
+                    buy_acct_trade_record.append(
+                        trade_svc.create_trade_record(TradeType.BUY, hedge_trade_price_amt.price,
+                                                      hedge_trade_price_amt.buy_amt, HandleFeeType.MAKER))
+                    sell_acct_trade_record.append(
+                        trade_svc.create_trade_record(TradeType.SELL, hedge_trade_price_amt.price,
+                                                      hedge_trade_price_amt.sellAmt, HandleFeeType.MAKER))
 
 
 if __name__ == '__main__':
-    print(calculate_first_layer_invest_amt(1625, 1.5, 4))
+    # print(calc_current_price(-4742.375823245699, 103471.35, 203619.2))
+    # print(calc_profit(101101.9, 103471.35, 203619.2))
+    # print(calc_first_layer_invest_amt(1625, 1.5, 4))
     BinanceSvc().backtest_hedge_grid(BinanceProduct.BTCUSDT, 100000, 120000, "20",
                                      type_util.str_to_datetime("20250101"), type_util.str_to_datetime("20251201"),
                                      8000, "1.5%", 60)
