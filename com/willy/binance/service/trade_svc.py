@@ -1,4 +1,5 @@
 import math
+from datetime import datetime
 from decimal import Decimal, ROUND_FLOOR
 from typing import List
 
@@ -6,6 +7,30 @@ from com.willy.binance.config.config_util import config_util
 from com.willy.binance.dto.trade_record import TradeRecord
 from com.willy.binance.enum.handle_fee_type import HandleFeeType
 from com.willy.binance.enum.trade_type import TradeType
+
+
+def calc_profit(current_price, avg_price, total_amt, fee_rate=0.0004):
+    """
+    計算損益 (USDT)
+    :param current_price: 現價
+    :param avg_price: 開倉均價
+    :param total_amt: 倉位金額 (USDT)
+    :param fee_rate: 手續費率 (預設 0.0004 即 0.04%)
+    """
+    y = (total_amt / avg_price) * (current_price * Decimal(1 - fee_rate) - avg_price)
+    return y
+
+
+def calc_force_close_offset_price(profit: Decimal, avg_price: Decimal, invest_amt: Decimal):
+    """
+    根據損益反推現價
+    :param profit: 損益 (USDT)
+    :param avg_price: 開倉均價
+    :param total_amt: 倉位金額 (USDT)
+    :return: 現價 (current_price)
+    """
+    current_price = (avg_price * Decimal(1 + profit / invest_amt)) / Decimal(0.9996)
+    return current_price
 
 
 def calc_buyable_units(invest_amt: Decimal, price_per_btc: Decimal, handle_fee_ratio: Decimal = Decimal(
@@ -38,14 +63,27 @@ def calc_trade_amt(price: Decimal, units: Decimal, handle_fee: Decimal = Decimal
     return price * units * (1 + handle_fee)
 
 
-def create_trade_record(trade_type: TradeType, price: Decimal, amt: Decimal,
-                        handle_fee_type: HandleFeeType = HandleFeeType.TAKER) -> TradeRecord:
+def create_trade_record(date: datetime, trade_type: TradeType, price: Decimal, amt: Decimal,
+                        handle_fee_type: HandleFeeType = HandleFeeType.TAKER) -> TradeRecord | None:
     handle_fee = Decimal(config_util("binance.trade.handle.fee").get(handle_fee_type.name))
     buyable_units = calc_buyable_units(amt, price, handle_fee)
-    return TradeRecord(trade_type, price, buyable_units, calc_trade_amt(price, buyable_units, handle_fee))
+    if buyable_units > 0:
+        return TradeRecord(date, trade_type, price, buyable_units, calc_trade_amt(price, buyable_units, handle_fee))
+    else:
+        return None
 
 
-def log_trade_info(trade_record_list: List[TradeRecord]):
-    profit = Decimal(0)
-
-    # for trade_record in trade_record_list:
+def log_trade_info(current_price: Decimal, invest_amt: Decimal, leverage_ratio: int,
+                   trade_record_list: List[TradeRecord],
+                   end_datetime: datetime = None):
+    total_cost = Decimal(0)
+    total_units = Decimal(0)
+    trade_record_list.sort(key=lambda tr: tr.date)
+    for trade_record in trade_record_list:
+        if end_datetime and end_datetime < trade_record.date:
+            break
+        total_cost += trade_record.amt
+        total_units += trade_record.unit
+    avg_price = total_cost / total_units
+    return calc_profit(current_price, avg_price, total_cost), calc_force_close_offset_price(invest_amt * -1, avg_price,
+                                                                                            invest_amt * leverage_ratio)

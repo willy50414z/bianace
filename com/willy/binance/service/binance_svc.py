@@ -26,30 +26,6 @@ def calc_first_layer_invest_amt(total_invest_amt: int, level_gap: float, levels:
     return round(single_side_invest_amt * (1 - level_gap) / (1 - level_gap ** levels))
 
 
-def calc_profit(current_price, avg_price, total_amt, fee_rate=0.0004):
-    """
-    計算損益 (USDT)
-    :param current_price: 現價
-    :param avg_price: 開倉均價
-    :param total_amt: 倉位金額 (USDT)
-    :param fee_rate: 手續費率 (預設 0.0004 即 0.04%)
-    """
-    y = (total_amt / avg_price) * (current_price * (1 - fee_rate) - avg_price)
-    return y
-
-
-def calc_current_price(y, avg_price, total_amt):
-    """
-    根據損益反推現價
-    :param y: 損益 (USDT)
-    :param avg_price: 開倉均價
-    :param total_amt: 倉位金額 (USDT)
-    :return: 現價 (current_price)
-    """
-    current_price = (avg_price * (1 + y / total_amt)) / 0.9996
-    return current_price
-
-
 class BinanceSvc:
     config = config_util("binance.acct.hedgebuy")
     client = Client(config.get("apikey"), config.get("privatekey"))
@@ -157,16 +133,45 @@ class BinanceSvc:
                 if not hedge_trade_price_amt.has_trade and daily_kline.high > hedge_trade_price_amt.price and daily_kline.low < hedge_trade_price_amt.price:
                     # five_minutes_kline_list = self.get_historical_klines(binance_product, Client.KLINE_INTERVAL_5MINUTE, start_date=daily_kline.start_time, end_date=daily_kline.end_time)
                     # 觸發交易時紀錄交易紀錄
-                    buy_acct_trade_record.append(
-                        trade_svc.create_trade_record(TradeType.BUY, hedge_trade_price_amt.price,
-                                                      hedge_trade_price_amt.buy_amt, HandleFeeType.MAKER))
-                    sell_acct_trade_record.append(
-                        trade_svc.create_trade_record(TradeType.SELL, hedge_trade_price_amt.price,
-                                                      hedge_trade_price_amt.sellAmt, HandleFeeType.MAKER))
+                    trade_record = trade_svc.create_trade_record(daily_kline.start_time, TradeType.BUY,
+                                                                 hedge_trade_price_amt.price,
+                                                                 hedge_trade_price_amt.buy_amt, HandleFeeType.MAKER);
+                    if trade_record:
+                        buy_acct_trade_record.append(trade_record)
+
+                    trade_record = trade_svc.create_trade_record(daily_kline.start_time, TradeType.SELL,
+                                                                 hedge_trade_price_amt.price,
+                                                                 hedge_trade_price_amt.sellAmt, HandleFeeType.MAKER)
+                    if trade_record:
+                        sell_acct_trade_record.append(trade_record)
+
+                    if len(buy_acct_trade_record) > 0:
+                        logging.info(
+                            trade_svc.log_trade_info(daily_kline.close, Decimal(invest_amt), leverage_ratio,
+                                                     buy_acct_trade_record,
+                                                     daily_kline.end_time))
+
+                    if len(sell_acct_trade_record) > 0:
+                        logging.info(
+                            trade_svc.log_trade_info(daily_kline.close, Decimal(invest_amt), leverage_ratio,
+                                                     sell_acct_trade_record,
+                                                     daily_kline.end_time))
+
+
+def calc_current_price(y, avg_price, total_amt):
+    """
+    根據損益反推現價
+    :param y: 損益 (USDT)
+    :param avg_price: 開倉均價
+    :param total_amt: 倉位金額 (USDT)
+    :return: 現價 (current_price)
+    """
+    current_price = (avg_price * (1 + y / total_amt)) / 0.9996
+    return current_price
 
 
 if __name__ == '__main__':
-    # print(calc_current_price(-4742.375823245699, 103471.35, 203619.2))
+    # print(calc_current_price(-203619.2, 103471.35, 203619.2))
     # print(calc_profit(101101.9, 103471.35, 203619.2))
     # print(calc_first_layer_invest_amt(1625, 1.5, 4))
     BinanceSvc().backtest_hedge_grid(BinanceProduct.BTCUSDT, 100000, 120000, "20",
