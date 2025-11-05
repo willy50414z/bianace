@@ -1,0 +1,1 @@
+conda env export > bianace.yaml
