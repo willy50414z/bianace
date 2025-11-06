@@ -49,7 +49,7 @@ class BinanceSvc:
 
     def backtest_hedge_grid(self, binance_product: BinanceProduct, lower_bound: int, upper_bound: int, grid_levels: str,
                             start_time: datetime.datetime, end_time: datetime.datetime, invest_amt: int,
-                            level_amt_change: str, leverage_ratio: int):
+                            level_amt_change: str, leverage_ratio: Decimal):
         """
         回測買賣對沖策略損益
 

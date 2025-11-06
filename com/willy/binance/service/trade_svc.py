@@ -4,6 +4,7 @@ from decimal import Decimal, ROUND_FLOOR
 from typing import List
 
 from com.willy.binance.config.config_util import config_util
+from com.willy.binance.dto.trade_detail import TradeDetail
 from com.willy.binance.dto.trade_record import TradeRecord
 from com.willy.binance.enum.handle_fee_type import HandleFeeType
 from com.willy.binance.enum.trade_type import TradeType
@@ -21,7 +22,7 @@ def calc_profit(current_price, avg_price, total_amt, fee_rate=0.0004):
     return y
 
 
-def calc_force_close_offset_price(profit: Decimal, avg_price: Decimal, invest_amt: Decimal):
+def calc_force_close_offset_price(profit: Decimal, avg_price: Decimal, traded_amt: Decimal):
     """
     根據損益反推現價
     :param profit: 損益 (USDT)
@@ -29,7 +30,7 @@ def calc_force_close_offset_price(profit: Decimal, avg_price: Decimal, invest_am
     :param total_amt: 倉位金額 (USDT)
     :return: 現價 (current_price)
     """
-    current_price = (avg_price * Decimal(1 + profit / invest_amt)) / Decimal(0.9996)
+    current_price = (avg_price * Decimal(1 + profit / traded_amt)) / Decimal(0.9996)
     return current_price
 
 
@@ -73,17 +74,56 @@ def create_trade_record(date: datetime, trade_type: TradeType, price: Decimal, a
         return None
 
 
-def log_trade_info(current_price: Decimal, invest_amt: Decimal, leverage_ratio: int,
+def log_trade_info(current_price: Decimal, invest_amt: Decimal, leverage_ratio: Decimal,
                    trade_record_list: List[TradeRecord],
                    end_datetime: datetime = None):
-    total_cost = Decimal(0)
-    total_units = Decimal(0)
+    """
+
+    Args:
+        current_price:
+        invest_amt: 投資金額(未被槓桿放大)
+        leverage_ratio: 槓桿倍數
+        trade_record_list: 交易紀錄
+        end_datetime:
+
+    Returns:
+
+    """
     trade_record_list.sort(key=lambda tr: tr.date)
+    trade_detail_list = List[TradeDetail]
     for trade_record in trade_record_list:
         if end_datetime and end_datetime < trade_record.date:
             break
-        total_cost += trade_record.amt
-        total_units += trade_record.unit
-    avg_price = total_cost / total_units
-    return calc_profit(current_price, avg_price, total_cost), calc_force_close_offset_price(invest_amt * -1, avg_price,
-                                                                                            invest_amt * leverage_ratio)
+
+        hold_units = Decimal(0)
+        traded_amt = Decimal(0)
+        if len(trade_detail_list) > 0:
+            last_trade_detail = trade_detail_list[len(trade_detail_list) - 1]
+            hold_units = last_trade_detail.units
+            traded_amt = last_trade_detail.amt
+        if trade_record.type == TradeType.BUY:
+            total_trade_amt = traded_amt + trade_record.amt
+            total_trade_unit = hold_units + trade_record.unit
+            guarantee = total_trade_amt / leverage_ratio
+            avg_price = total_trade_amt / total_trade_unit
+            profit = calc_profit(current_price, avg_price, total_trade_amt)
+            force_close_offset_price = calc_force_close_offset_price(-1 * invest_amt, avg_price, total_trade_amt)
+            acct_balance = invest_amt - guarantee
+            trade_detail_list.append(
+                TradeDetail(trade_record, total_trade_unit, avg_price, total_trade_amt,
+                            guarantee,
+                            current_price, profit, force_close_offset_price, acct_balance))
+        elif trade_record.type == TradeType.SELL:
+            total_trade_amt = traded_amt + trade_record.amt
+            total_trade_unit = hold_units - trade_record.unit
+            guarantee = total_trade_amt / leverage_ratio
+            avg_price = total_trade_amt / total_trade_unit * -1
+            profit = calc_profit(current_price, avg_price, total_trade_amt) * -1
+            force_close_offset_price = calc_force_close_offset_price(invest_amt, avg_price, total_trade_amt)
+            acct_balance = invest_amt - guarantee
+            trade_detail_list.append(
+                TradeDetail(trade_record, total_trade_unit, avg_price, total_trade_amt,
+                            guarantee,
+                            current_price, profit, force_close_offset_price, acct_balance))
+
+    return trade_detail_list
