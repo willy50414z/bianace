@@ -11,4 +11,5 @@ class TradeRecord:
     type: TradeType  # BUY | SELL
     price: Decimal  # 交易價格
     unit: Decimal  # 交易單位
-    amt: Decimal  # 交易金額(槓桿放大後)
+    handle_amt: Decimal  # 持有金額(不含手續費)
+    handling_fee: Decimal  # 手續費

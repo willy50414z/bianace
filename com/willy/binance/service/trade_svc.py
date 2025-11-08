@@ -1,82 +1,98 @@
 import math
 from datetime import datetime
-from decimal import Decimal, ROUND_FLOOR
+from decimal import Decimal, ROUND_FLOOR, ROUND_CEILING
 from typing import List
 
 from com.willy.binance.config.config_util import config_util
+from com.willy.binance.config.const import DECIMAL_PLACE_2
 from com.willy.binance.dto.trade_detail import TradeDetail
 from com.willy.binance.dto.trade_record import TradeRecord
 from com.willy.binance.enum.handle_fee_type import HandleFeeType
 from com.willy.binance.enum.trade_type import TradeType
 
 
-def calc_profit(current_price, avg_price, total_amt, fee_rate=0.0004):
-    """
-    計算損益 (USDT)
-    :param current_price: 現價
-    :param avg_price: 開倉均價
-    :param total_amt: 倉位金額 (USDT)
-    :param fee_rate: 手續費率 (預設 0.0004 即 0.04%)
-    """
-    y = (total_amt / avg_price) * (current_price * Decimal(1 - fee_rate) - avg_price)
-    return y
+def calc_profit(current_price: Decimal, total_handle_amt: Decimal, total_handle_fee, units: Decimal,
+                handle_fee_type=HandleFeeType.TAKER):
+    fee_rate = Decimal(config_util("binance.trade.handle.fee").get(handle_fee_type.name))
+    if units > 0:
+        # 平倉多倉
+        # (賣金 - 賣手續) - 買金 - 買手續
+        profit = current_price * units * (1 - fee_rate) - total_handle_amt - total_handle_fee
+        # profit + total_handling_amt + total_handling_fee  / units / (1 - fee_rate)
+    elif units < 0:
+        # 平倉空倉
+        # 賣金 - 賣手續 - (買價 + 買手續)
+        profit = (total_handle_amt - total_handle_fee) - current_price * -1 * units * (1 + fee_rate)
+        # (total_handling_amt - total_handling_fee)- profit / -1 / units / (1 + fee_rate)
+    else:
+        return None
+    return profit.quantize(DECIMAL_PLACE_2, ROUND_FLOOR)
 
 
-def calc_force_close_offset_price(profit: Decimal, avg_price: Decimal, traded_amt: Decimal):
+def calc_force_close_offset_price(profit: Decimal, total_handle_amt: Decimal, total_handle_fee: Decimal, units: Decimal,
+                                  handle_fee_type: HandleFeeType = HandleFeeType.TAKER):
     """
-    根據損益反推現價
-    :param profit: 損益 (USDT)
-    :param avg_price: 開倉均價
-    :param total_amt: 倉位金額 (USDT)
-    :return: 現價 (current_price)
-    """
-    current_price = (avg_price * Decimal(1 + profit / traded_amt)) / Decimal(0.9996)
-    return current_price
-
-
-def calc_buyable_units(invest_amt: Decimal, price_per_btc: Decimal, handle_fee_ratio: Decimal = Decimal(
-    config_util("binance.trade.handle.fee").get(HandleFeeType.TAKER.name))) -> Decimal:
-    """
-    計算在手續費以 BTC 計算、投資金額以法幣計，且成交價固定時，
-    無條件捨去到小數點第 3 位的可購買 BTC 數量。
-
-    Parameters:
-        invest_amt (Decimal): 總投資金額（法幣，單位元）
-        price_per_btc (Decimal): BTC 價格，單位元/BTC
-        handle_fee_ratio (Decimal): 手續費，以 BTC 為單位
+    Args:
+        profit: 預期獲利
+        total_handle_amt: 持倉金額
+        total_handle_fee: 總手續費
+        units: 持倉單位數
+        handle_fee_type: 手續費類別
 
     Returns:
-        Decimal: 無條件捨去到小數點第 3 位的 BTC 數量
+
+    """
+    handle_fee_ratio = Decimal(config_util("binance.trade.handle.fee").get(handle_fee_type.name))
+    if units > 0:
+        force_close_offset_price = (profit + total_handle_amt + total_handle_fee) / units / (1 - handle_fee_ratio)
+    elif units < 0:
+        force_close_offset_price = ((total_handle_amt - total_handle_fee) - profit) / -1 / units / (
+                1 + handle_fee_ratio)
+    else:
+        return None
+    return force_close_offset_price.quantize(Decimal("1"), rounding=ROUND_CEILING)
+
+
+def calc_buyable_units(invest_amt: Decimal, price: Decimal,
+                       handle_fee_type: HandleFeeType = HandleFeeType.TAKER) -> Decimal:
+    """
+
+    Args:
+        invest_amt: 投資額
+        price: 價格
+        handle_fee_type: 手續費類別
+
+    Returns:
+
     """
     # 手續費換算成法幣
-    fee_in_currency = handle_fee_ratio * price_per_btc
-    usable_money = invest_amt - fee_in_currency
-    if usable_money <= Decimal("0"):
+    handle_fee_ratio = Decimal(config_util("binance.trade.handle.fee").get(handle_fee_type.name))
+    handle_fee = handle_fee_ratio * price
+    usable_amt = invest_amt - handle_fee
+    if usable_amt <= Decimal("0"):
         return Decimal("0")
-    btc = usable_money / price_per_btc
-    # 無條件捨去到小數點第3位
-    btc_floor = btc.quantize(Decimal("0.001"), rounding=ROUND_FLOOR)
-    return btc_floor
+    return (usable_amt / price).quantize(Decimal("0.001"), rounding=ROUND_FLOOR)
 
 
-def calc_trade_amt(price: Decimal, units: Decimal, handle_fee: Decimal = Decimal(
-    config_util("binance.trade.handle.fee").get(HandleFeeType.TAKER.name))) -> Decimal:
-    return price * units * (1 + handle_fee)
+def calc_handle_fee(price: Decimal, units: Decimal, handle_fee_type: HandleFeeType = HandleFeeType.TAKER
+                    ) -> Decimal:
+    handle_fee_ratio = Decimal(config_util("binance.trade.handle.fee").get(handle_fee_type.name))
+    return (price * units * handle_fee_ratio).quantize(DECIMAL_PLACE_2, rounding=ROUND_CEILING)
 
 
 def create_trade_record(date: datetime, trade_type: TradeType, price: Decimal, amt: Decimal,
                         handle_fee_type: HandleFeeType = HandleFeeType.TAKER) -> TradeRecord | None:
-    handle_fee = Decimal(config_util("binance.trade.handle.fee").get(handle_fee_type.name))
-    buyable_units = calc_buyable_units(amt, price, handle_fee)
+    buyable_units = calc_buyable_units(amt, price, handle_fee_type)
     if buyable_units > 0:
-        return TradeRecord(date, trade_type, price, buyable_units, calc_trade_amt(price, buyable_units, handle_fee))
+        return TradeRecord(date, trade_type, price, buyable_units, price * buyable_units,
+                           calc_handle_fee(price, buyable_units, handle_fee_type))
     else:
         return None
 
 
-def build_trade_detail_list(current_price: Decimal, invest_amt: Decimal, leverage_ratio: Decimal,
-                            trade_record_list: List[TradeRecord],
-                            end_datetime: datetime = None, trade_detail_list=None):
+def build_trade_detail_list(current_date: datetime, current_price: Decimal, invest_amt: Decimal,
+                            leverage_ratio: Decimal,
+                            trade_record: TradeRecord | None, trade_detail_list=List[TradeDetail]):
     """
 
     Args:
@@ -84,48 +100,64 @@ def build_trade_detail_list(current_price: Decimal, invest_amt: Decimal, leverag
         current_price:
         invest_amt: 投資金額(未被槓桿放大)
         leverage_ratio: 槓桿倍數
-        trade_record_list: 交易紀錄
-        end_datetime:
+        trade_record: 新的一筆交易
 
     Returns:
 
     """
-    if trade_detail_list is None:
-        trade_detail_list = []
-    trade_record_list.sort(key=lambda tr: tr.date)
-    for trade_record in trade_record_list:
-        if end_datetime and end_datetime < trade_record.date:
-            break
+    total_handle_units = Decimal(0)
+    total_handle_amt = Decimal(0)
+    total_handle_fee = Decimal(0)
+    last_trade_detail_guarantee = Decimal(0)
+    last_trade_detail_force_close_offset_price = Decimal(0)
+    last_trade_detail_acct_balance = invest_amt
+    if len(trade_detail_list) > 0:
+        last_trade_detail = trade_detail_list[len(trade_detail_list) - 1]
+        total_handle_units = last_trade_detail.units
+        total_handle_amt = last_trade_detail.handle_amt
+        total_handle_fee = last_trade_detail.handling_fee
+        last_trade_detail_guarantee = last_trade_detail.guarantee_fee
+        last_trade_detail_force_close_offset_price = last_trade_detail.force_force_close_offset_price
+        last_trade_detail_acct_balance = last_trade_detail.acct_balance
 
-        hold_units = Decimal(0)
-        traded_amt = Decimal(0)
-        if len(trade_detail_list) > 0:
-            last_trade_detail = trade_detail_list[len(trade_detail_list) - 1]
-            hold_units = last_trade_detail.units
-            traded_amt = last_trade_detail.amt
+    if trade_record:
+        total_handle_amt += trade_record.handle_amt
+        total_handle_fee += trade_record.handling_fee
+        guarantee = (total_handle_amt / leverage_ratio).quantize(DECIMAL_PLACE_2, rounding=ROUND_CEILING)
+        acct_balance = invest_amt - guarantee - total_handle_fee
+
         if trade_record.type == TradeType.BUY:
-            total_trade_amt = traded_amt + trade_record.amt
-            total_trade_unit = hold_units + trade_record.unit
-            guarantee = total_trade_amt / leverage_ratio
-            avg_price = total_trade_amt / total_trade_unit
-            profit = calc_profit(current_price, avg_price, total_trade_amt)
-            force_close_offset_price = calc_force_close_offset_price(-1 * invest_amt, avg_price, total_trade_amt)
-            acct_balance = invest_amt - guarantee
+            total_handle_units += trade_record.unit
+            profit = calc_profit(current_price, total_handle_amt, total_handle_fee, total_handle_units,
+                                 HandleFeeType.TAKER)
+            force_close_offset_price = calc_force_close_offset_price(-1 * invest_amt,
+                                                                     total_handle_amt, total_handle_fee,
+                                                                     total_handle_units)
             trade_detail_list.append(
-                TradeDetail(trade_record, total_trade_unit, avg_price, total_trade_amt,
+                TradeDetail(current_date, total_handle_units, total_handle_amt, total_handle_fee,
                             guarantee,
-                            current_price, profit, force_close_offset_price, acct_balance))
+                            current_price, profit, force_close_offset_price, acct_balance, trade_record))
         elif trade_record.type == TradeType.SELL:
-            total_trade_amt = traded_amt + trade_record.amt
-            total_trade_unit = hold_units - trade_record.unit
-            guarantee = total_trade_amt / leverage_ratio
-            avg_price = total_trade_amt / total_trade_unit * -1
-            profit = calc_profit(current_price, avg_price, total_trade_amt) * -1
-            force_close_offset_price = calc_force_close_offset_price(invest_amt, avg_price, total_trade_amt)
-            acct_balance = invest_amt - guarantee
+            total_handle_units -= trade_record.unit
+            profit = calc_profit(current_price, total_handle_amt, total_handle_fee, total_handle_units,
+                                 HandleFeeType.TAKER)
+            force_close_offset_price = calc_force_close_offset_price(-1 * invest_amt, total_handle_amt,
+                                                                     total_handle_fee,
+                                                                     total_handle_units,
+                                                                     HandleFeeType.TAKER)
             trade_detail_list.append(
-                TradeDetail(trade_record, total_trade_unit, avg_price, total_trade_amt,
+                TradeDetail(current_date, total_handle_units, total_handle_amt, total_handle_fee,
                             guarantee,
-                            current_price, profit, force_close_offset_price, acct_balance))
+                            current_price, profit, force_close_offset_price, acct_balance, trade_record))
+    else:
+        profit = calc_profit(current_price, total_handle_amt, total_handle_fee, total_handle_units,
+                             HandleFeeType.TAKER)
+
+        trade_detail_list.append(
+            TradeDetail(current_date, total_handle_units, total_handle_amt, total_handle_fee,
+                        last_trade_detail_guarantee,
+                        current_price, profit, last_trade_detail_force_close_offset_price,
+                        last_trade_detail_acct_balance,
+                        trade_record))
 
     return trade_detail_list
