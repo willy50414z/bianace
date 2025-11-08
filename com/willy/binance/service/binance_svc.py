@@ -277,3 +277,9 @@ if __name__ == '__main__':
     bianace_svc.backtest_hedge_grid(BinanceProduct.BTCUSDT, 97000, 107000, "10",
                                     type_util.str_to_datetime("20250101"), type_util.str_to_datetime("20250201"),
                                     Decimal(5000), "150%", Decimal(100))
+
+    # TODO 中間價直接上漲突破區間會造成損失
+    # TODO 解法: 在區間上沿加一個區間，如果突破區間，可以對沖掉損失，缺點是虧損區間會加大，尤其是區間1上沿跟區間2下沿之間
+    # TODO => 用每次交易後庫存計算各價位損益，找出損益區間及最大損失風險
+    # TODO => 雙重區間觸發後，找出獲利區間
+    # TODO  check > 如果跌回區間1，在觸發區間3前能恢復獲利?
