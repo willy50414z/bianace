@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 
 def str_date_to_timestamp(yyyymmdd):
@@ -21,5 +22,13 @@ def datetime_to_str(dt: datetime, format="%Y%m%d"):
     return dt.strftime(format)
 
 
-def str_to_datetime(str):
-    return datetime.strptime(str, "%Y%m%d")
+def str_to_date(str):
+    return datetime.strptime(str, "%Y%m%d").astimezone(ZoneInfo("UTC"))
+
+
+def str_to_date_min(str):
+    return datetime.strptime(str, "%Y%m%d%H%M").astimezone(ZoneInfo("UTC"))
+
+
+def str_to_datetime(s: str = "2024-12-31T23:00:00Z"):
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))

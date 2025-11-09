@@ -5,10 +5,21 @@ from typing import List
 
 from com.willy.binance.config.config_util import config_util
 from com.willy.binance.config.const import DECIMAL_PLACE_2
+from com.willy.binance.dto.binance_kline import BinanceKline
 from com.willy.binance.dto.trade_detail import TradeDetail
 from com.willy.binance.dto.trade_record import TradeRecord
 from com.willy.binance.enum.handle_fee_type import HandleFeeType
 from com.willy.binance.enum.trade_type import TradeType
+
+
+def calc_max_loss(highest_price: Decimal, lowest_price: Decimal, total_handle_amt: Decimal, total_handle_fee,
+                  units: Decimal,
+                  handle_fee_type=HandleFeeType.TAKER):
+    if units > 0:
+        return min(calc_profit(highest_price, total_handle_amt, total_handle_fee, units, handle_fee_type),
+                   calc_profit(lowest_price, total_handle_amt, total_handle_fee, units, handle_fee_type))
+    else:
+        return Decimal(0)
 
 
 def calc_profit(current_price: Decimal, total_handle_amt: Decimal, total_handle_fee, units: Decimal,
@@ -53,8 +64,7 @@ def calc_force_close_offset_price(profit: Decimal, total_handle_amt: Decimal, to
     return force_close_offset_price.quantize(Decimal("1"), rounding=ROUND_CEILING)
 
 
-def calc_buyable_units(invest_amt: Decimal, price: Decimal,
-                       handle_fee_type: HandleFeeType = HandleFeeType.TAKER) -> Decimal:
+def calc_buyable_units(invest_amt: Decimal, price: Decimal) -> Decimal:
     """
 
     Args:
@@ -65,13 +75,9 @@ def calc_buyable_units(invest_amt: Decimal, price: Decimal,
     Returns:
 
     """
-    # 手續費換算成法幣
-    handle_fee_ratio = Decimal(config_util("binance.trade.handle.fee").get(handle_fee_type.name))
-    handle_fee = handle_fee_ratio * price
-    usable_amt = invest_amt - handle_fee
-    if usable_amt <= Decimal("0"):
+    if invest_amt <= Decimal("0"):
         return Decimal("0")
-    return (usable_amt / price).quantize(Decimal("0.001"), rounding=ROUND_FLOOR)
+    return (invest_amt / price).quantize(Decimal("0.001"), rounding=ROUND_FLOOR)
 
 
 def calc_handle_fee(price: Decimal, units: Decimal, handle_fee_type: HandleFeeType = HandleFeeType.TAKER
@@ -82,7 +88,7 @@ def calc_handle_fee(price: Decimal, units: Decimal, handle_fee_type: HandleFeeTy
 
 def create_trade_record(date: datetime, trade_type: TradeType, price: Decimal, amt: Decimal,
                         handle_fee_type: HandleFeeType = HandleFeeType.TAKER) -> TradeRecord | None:
-    buyable_units = calc_buyable_units(amt, price, handle_fee_type)
+    buyable_units = calc_buyable_units(amt, price)
     if buyable_units > 0:
         return TradeRecord(date, trade_type, price, buyable_units, price * buyable_units,
                            calc_handle_fee(price, buyable_units, handle_fee_type))
@@ -90,7 +96,7 @@ def create_trade_record(date: datetime, trade_type: TradeType, price: Decimal, a
         return None
 
 
-def build_trade_detail_list(current_date: datetime, current_price: Decimal, invest_amt: Decimal,
+def build_trade_detail_list(bianaceKline: BinanceKline, invest_amt: Decimal,
                             leverage_ratio: Decimal,
                             trade_record: TradeRecord | None, trade_detail_list=List[TradeDetail]):
     """
@@ -105,12 +111,16 @@ def build_trade_detail_list(current_date: datetime, current_price: Decimal, inve
     Returns:
 
     """
+    current_price = bianaceKline.close
+    current_date = bianaceKline.end_time
     total_handle_units = Decimal(0)
     total_handle_amt = Decimal(0)
     total_handle_fee = Decimal(0)
     last_trade_detail_guarantee = Decimal(0)
     last_trade_detail_force_close_offset_price = Decimal(0)
     last_trade_detail_acct_balance = invest_amt
+    last_trade_break_even_point_price = Decimal(0)
+    last_trade_max_loss = Decimal(0)
     if len(trade_detail_list) > 0:
         last_trade_detail = trade_detail_list[len(trade_detail_list) - 1]
         total_handle_units = last_trade_detail.units
@@ -119,24 +129,35 @@ def build_trade_detail_list(current_date: datetime, current_price: Decimal, inve
         last_trade_detail_guarantee = last_trade_detail.guarantee_fee
         last_trade_detail_force_close_offset_price = last_trade_detail.force_force_close_offset_price
         last_trade_detail_acct_balance = last_trade_detail.acct_balance
+        last_trade_break_even_point_price = last_trade_detail.break_even_point_price
+        last_trade_max_loss = last_trade_detail.max_loss
 
     if trade_record:
         total_handle_amt += trade_record.handle_amt
         total_handle_fee += trade_record.handling_fee
         guarantee = (total_handle_amt / leverage_ratio).quantize(DECIMAL_PLACE_2, rounding=ROUND_CEILING)
         acct_balance = invest_amt - guarantee - total_handle_fee
+        max_loss = calc_max_loss(bianaceKline.high, bianaceKline.low, total_handle_amt, total_handle_fee,
+                                 total_handle_units,
+                                 HandleFeeType.TAKER)
 
         if trade_record.type == TradeType.BUY:
             total_handle_units += trade_record.unit
             profit = calc_profit(current_price, total_handle_amt, total_handle_fee, total_handle_units,
                                  HandleFeeType.TAKER)
+
             force_close_offset_price = calc_force_close_offset_price(-1 * invest_amt,
                                                                      total_handle_amt, total_handle_fee,
                                                                      total_handle_units)
+            break_even_point_price = calc_force_close_offset_price(Decimal(0),
+                                                                   total_handle_amt, total_handle_fee,
+                                                                   total_handle_units)
             trade_detail_list.append(
                 TradeDetail(current_date, total_handle_units, total_handle_amt, total_handle_fee,
                             guarantee,
-                            current_price, profit, force_close_offset_price, acct_balance, trade_record))
+                            current_price, profit, force_close_offset_price, break_even_point_price, max_loss,
+                            acct_balance,
+                            trade_record))
         elif trade_record.type == TradeType.SELL:
             total_handle_units -= trade_record.unit
             profit = calc_profit(current_price, total_handle_amt, total_handle_fee, total_handle_units,
@@ -145,19 +166,23 @@ def build_trade_detail_list(current_date: datetime, current_price: Decimal, inve
                                                                      total_handle_fee,
                                                                      total_handle_units,
                                                                      HandleFeeType.TAKER)
+            break_even_point_price = calc_force_close_offset_price(Decimal(0),
+                                                                   total_handle_amt, total_handle_fee,
+                                                                   total_handle_units)
             trade_detail_list.append(
                 TradeDetail(current_date, total_handle_units, total_handle_amt, total_handle_fee,
                             guarantee,
-                            current_price, profit, force_close_offset_price, acct_balance, trade_record))
+                            current_price, profit, force_close_offset_price, break_even_point_price, max_loss,
+                            acct_balance,
+                            trade_record))
     else:
         profit = calc_profit(current_price, total_handle_amt, total_handle_fee, total_handle_units,
                              HandleFeeType.TAKER)
-
         trade_detail_list.append(
             TradeDetail(current_date, total_handle_units, total_handle_amt, total_handle_fee,
                         last_trade_detail_guarantee,
                         current_price, profit, last_trade_detail_force_close_offset_price,
-                        last_trade_detail_acct_balance,
+                        last_trade_break_even_point_price, last_trade_max_loss, last_trade_detail_acct_balance,
                         trade_record))
 
     return trade_detail_list

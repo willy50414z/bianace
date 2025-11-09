@@ -8,7 +8,7 @@ from com.willy.binance.enum.trade_type import TradeType
 
 @dataclass
 class TradeDetail:
-    date:datetime
+    date: datetime
     units: Decimal
     handle_amt: Decimal
     handling_fee: Decimal
@@ -16,5 +16,7 @@ class TradeDetail:
     current_price: Decimal
     profit: Decimal
     force_force_close_offset_price: Decimal
+    break_even_point_price: Decimal
+    max_loss: Decimal
     acct_balance: Decimal
     trade_record: TradeRecord
