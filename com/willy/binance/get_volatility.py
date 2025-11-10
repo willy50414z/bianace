@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import List
 
 from binance import Client
 from dateutil.relativedelta import relativedelta
@@ -11,7 +12,8 @@ if __name__ == '__main__':
     binance_svc = BinanceSvc()
     kline_list = binance_svc.get_historical_klines(BinanceProduct.BTCUSDT, Client.KLINE_INTERVAL_1DAY,
                                              datetime.now() - relativedelta(**{"months": 1}), datetime.now())
-    gap = Decimal(0)
+    volatility_list = List[Decimal]
     for kline in kline_list:
-        gap = max(gap, kline.high - kline.low)
-    print(gap)
+        volatility_list.append(kline.high - kline.low)
+
+    print(volatility_list)
