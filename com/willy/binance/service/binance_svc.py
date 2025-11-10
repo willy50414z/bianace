@@ -307,7 +307,7 @@ if __name__ == '__main__':
     # print(calc_current_price(-203619.2, 103471.35, 203619.2))
     # print(calc_profit(101101.9, 103471.35, 203619.2))
     # print(calc_first_layer_invest_amt(1625, 1.5, 4))
-    bianace_svc = BinanceSvc()
+    binance_svc = BinanceSvc()
     start_date_str = "2025-11-08T13:15:00Z"
     end_date_str = "2025-11-09T23:55:00Z"
     level_amt_change = "150%"
@@ -318,14 +318,14 @@ if __name__ == '__main__':
     middle_price = 102400
     grid_range = 2000
 
-    bianace_svc.backtest_hedge_grid_list(
+    binance_svc.backtest_hedge_grid_list(
         [HedgeGridBacktestReq("low_block_strategy", BinanceProduct.BTCUSDT, invest_time_interval,
                               int(middle_price - grid_range / 2), int(middle_price + grid_range / 2), levels,
                               type_util.str_to_datetime(start_date_str),
                               type_util.str_to_datetime(end_date_str),
                               invest_amt, level_amt_change, leverage_ratio_str)])
 
-    # bianace_svc.backtest_hedge_grid_list(
+    # binance_svc.backtest_hedge_grid_list(
     #     [HedgeGridBacktestReq("low_block_strategy", BinanceProduct.BTCUSDT, invest_time_interval, 79000, 89000, levels,
     #                           type_util.str_to_datetime(start_date_str),
     #                           type_util.str_to_datetime(end_date_str),
@@ -339,7 +339,7 @@ if __name__ == '__main__':
     #                           type_util.str_to_datetime(end_date_str),
     #                           invest_amt, level_amt_change, leverage_ratio_str)])
 
-    # bianace_svc.backtest_hedge_grid(BinanceProduct.BTCUSDT, 97000, 107000, "10",
+    # binance_svc.backtest_hedge_grid(BinanceProduct.BTCUSDT, 97000, 107000, "10",
     #                                 type_util.str_to_datetime("20250101"), type_util.str_to_datetime("20250201"),
     #                                 Decimal(5000), "150%", Decimal(100))
 

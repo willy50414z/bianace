@@ -96,7 +96,7 @@ def create_trade_record(date: datetime, trade_type: TradeType, price: Decimal, a
         return None
 
 
-def build_trade_detail_list(bianaceKline: BinanceKline, invest_amt: Decimal,
+def build_trade_detail_list(binanceKline: BinanceKline, invest_amt: Decimal,
                             leverage_ratio: Decimal,
                             trade_record: TradeRecord | None, trade_detail_list=List[TradeDetail]):
     """
@@ -111,8 +111,8 @@ def build_trade_detail_list(bianaceKline: BinanceKline, invest_amt: Decimal,
     Returns:
 
     """
-    current_price = bianaceKline.close
-    current_date = bianaceKline.end_time
+    current_price = binanceKline.close
+    current_date = binanceKline.end_time
     total_handle_units = Decimal(0)
     total_handle_amt = Decimal(0)
     total_handle_fee = Decimal(0)
@@ -137,7 +137,7 @@ def build_trade_detail_list(bianaceKline: BinanceKline, invest_amt: Decimal,
         total_handle_fee += trade_record.handling_fee
         guarantee = (total_handle_amt / leverage_ratio).quantize(DECIMAL_PLACE_2, rounding=ROUND_CEILING)
         acct_balance = invest_amt - guarantee - total_handle_fee
-        max_loss = calc_max_loss(bianaceKline.high, bianaceKline.low, total_handle_amt, total_handle_fee,
+        max_loss = calc_max_loss(binanceKline.high, binanceKline.low, total_handle_amt, total_handle_fee,
                                  total_handle_units,
                                  HandleFeeType.TAKER)
 

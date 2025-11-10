@@ -1,1 +1,1 @@
-conda env export > bianace.yaml
+conda env export > binance.yaml

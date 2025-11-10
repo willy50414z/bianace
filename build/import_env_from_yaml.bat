@@ -1,1 +1,1 @@
-conda env create -f bianace.yaml
+conda env create -f binance.yaml
