@@ -8,8 +8,8 @@ from com.willy.binance.config.const import DECIMAL_PLACE_2
 from com.willy.binance.dto.binance_kline import BinanceKline
 from com.willy.binance.dto.trade_detail import TradeDetail
 from com.willy.binance.dto.trade_record import TradeRecord
-from com.willy.binance.enum.handle_fee_type import HandleFeeType
-from com.willy.binance.enum.trade_type import TradeType
+from com.willy.binance.enums.handle_fee_type import HandleFeeType
+from com.willy.binance.enums.trade_type import TradeType
 
 
 def calc_max_loss(highest_price: Decimal, lowest_price: Decimal, total_handle_amt: Decimal, total_handle_fee,

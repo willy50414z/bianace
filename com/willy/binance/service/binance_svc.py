@@ -16,10 +16,10 @@ from com.willy.binance.dto.hedge_grid_backtest_req import HedgeGridBacktestReq
 from com.willy.binance.dto.hedge_grid_backtest_res import HedgeGridBacktestRes
 from com.willy.binance.dto.hedge_trade_price_amt import HedgeTradePriceAmt
 from com.willy.binance.dto.trade_plan import TradePlan
-from com.willy.binance.enum import trade_type
-from com.willy.binance.enum.binance_product import BinanceProduct
-from com.willy.binance.enum.handle_fee_type import HandleFeeType
-from com.willy.binance.enum.trade_type import TradeType
+from com.willy.binance.enums import trade_type
+from com.willy.binance.enums.binance_product import BinanceProduct
+from com.willy.binance.enums.handle_fee_type import HandleFeeType
+from com.willy.binance.enums.trade_type import TradeType
 from com.willy.binance.service import trade_svc
 from com.willy.binance.util import type_util
 

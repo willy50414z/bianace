@@ -1,7 +1,7 @@
 from binance import Client, ThreadedWebsocketManager, ThreadedDepthCacheManager
 
 from com.willy.binance.config.config_util import config_util
-from com.willy.binance.enum.binance_product import BinanceProduct
+from com.willy.binance.enums.binance_product import BinanceProduct
 from com.willy.binance.service.binance_svc import binance_svc
 from com.willy.binance.util import type_util
 

@@ -6,7 +6,7 @@ from typing import List
 from binance import Client
 
 from com.willy.binance.dto.trade_detail import TradeDetail
-from com.willy.binance.enum.binance_product import BinanceProduct
+from com.willy.binance.enums.binance_product import BinanceProduct
 
 
 @dataclass
