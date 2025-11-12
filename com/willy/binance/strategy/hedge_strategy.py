@@ -14,6 +14,7 @@ from com.willy.binance.dto.trade_detail import TradeDetail
 from com.willy.binance.enums.handle_fee_type import HandleFeeType
 from com.willy.binance.enums.trade_type import TradeType
 from com.willy.binance.service import trade_svc
+from com.willy.binance.service.binance_svc import BinanceSvc
 from com.willy.binance.util import type_util
 
 
@@ -27,6 +28,10 @@ def calc_first_layer_invest_amt(total_invest_amt: Decimal, level_gap: Decimal, l
 
 
 class HedgeStrategy:
+    enable_trade_detail_log = False
+    enable_hedge_trade_plan_log = False
+    enable_trade_summary_log = True
+
     def backtest_hedge_grid_list(self, hedge_grid_backtest_req_list: List[HedgeGridBacktestReq]):
         hedge_grid_backtest_res_list = []
         for hedge_grid_backtest_req in hedge_grid_backtest_req_list:
@@ -43,7 +48,7 @@ class HedgeStrategy:
         Returns:
 
         """
-
+        binance_svc = BinanceSvc()
         # print出回測資訊
         if self.enable_trade_summary_log:
             logging.info(
@@ -103,10 +108,10 @@ class HedgeStrategy:
                     f"{hedge_buy_list[hedge_trade_idx].price}\t{hedge_buy_list[hedge_trade_idx].amt}\t{hedge_sell_list[hedge_trade_idx].amt}")
 
         # 回測交易紀錄
-        daily_kline_list = self.get_historical_klines(hedge_grid_backtest_req.binance_product,
-                                                      Client.KLINE_INTERVAL_5MINUTE,
-                                                      start_date=hedge_grid_backtest_req.start_time,
-                                                      end_date=hedge_grid_backtest_req.end_time)
+        daily_kline_list = binance_svc.get_historical_klines(hedge_grid_backtest_req.binance_product,
+                                                             Client.KLINE_INTERVAL_5MINUTE,
+                                                             start_date=hedge_grid_backtest_req.start_time,
+                                                             end_date=hedge_grid_backtest_req.end_time)
         single_side_invest_amt = (hedge_grid_backtest_req.invest_amt / 2).quantize(DECIMAL_PLACE_2, ROUND_FLOOR)
         single_side_guarantee_amt = (hedge_grid_backtest_req.guarantee_amt / 2).quantize(DECIMAL_PLACE_2, ROUND_FLOOR)
 
