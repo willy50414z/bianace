@@ -5,7 +5,7 @@ from typing import List
 
 from binance import Client
 
-from com.willy.binance.dto.trade_detail import TradeDetail
+from com.willy.binance.dto.txn_detail import TxnDetail
 from com.willy.binance.enums.binance_product import BinanceProduct
 
 
@@ -20,5 +20,6 @@ class HedgeGridBacktestReq:
     start_time: datetime
     end_time: datetime
     invest_amt: Decimal
+    guarantee_amt: Decimal
     level_amt_change: str  # 每網格，投資金額調整多少'150%'表示每一網格投資金額*150%
     leverage_ratio: Decimal
