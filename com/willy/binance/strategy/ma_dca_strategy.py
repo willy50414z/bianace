@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
+import pandas as pd
 from binance import Client
 
 from com.willy.binance.dto.ma_dca_backtest_req import MaDcaBacktestReq
@@ -90,11 +91,21 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
 
 
 if __name__ == '__main__':
-    invest_amt = Decimal(1000)
-    guarantee_amt = Decimal(4000)
+    # binance_svc = BinanceSvc()
+    # klines_df = binance_svc.get_historical_klines_df(BinanceProduct.BTCUSDT, Client.KLINE_INTERVAL_15MINUTE,
+    #                                      type_util.str_to_datetime("2025-10-01T00:00:00Z"), type_util.str_to_datetime("2025-11-05T00:00:00Z"))
+    # print("====BEFORE====")
+    # print(klines_df)
+    # klines_df.to_csv('data.csv', index=False)
 
-    req = MaDcaBacktestReq("simple", BinanceProduct.BTCUSDT, type_util.str_to_datetime("2025-10-01T00:00:00Z"),
-                           type_util.str_to_datetime("2025-11-05T00:00:00Z"), invest_amt, guarantee_amt,
-                           dca_levels=Decimal(10),
-                           level_amt_change=Decimal(1.5), leverage_ratio=Decimal(100))
-    backtest_ma_dca(req)
+    df_loaded = pd.read_csv('data.csv')
+    print("====AFTER====")
+    print(df_loaded)
+    # invest_amt = Decimal(1000)
+    # guarantee_amt = Decimal(4000)
+    #
+    # req = MaDcaBacktestReq("simple", BinanceProduct.BTCUSDT, type_util.str_to_datetime("2025-10-01T00:00:00Z"),
+    #                        type_util.str_to_datetime("2025-11-05T00:00:00Z"), invest_amt, guarantee_amt,
+    #                        dca_levels=Decimal(10),
+    #                        level_amt_change=Decimal(1.5), leverage_ratio=Decimal(100))
+    # backtest_ma_dca(req)
