@@ -16,7 +16,8 @@ from com.willy.binance.util import type_util
 
 class BinanceSvc:
     config = config_util("binance.acct.hedgebuy")
-    client = Client(config.get("apikey"), config.get("privatekey"))
+
+    # client = Client(config.get("apikey"), config.get("privatekey"))
 
     def get_historical_klines(self, binance_product: BinanceProduct, kline_interval=Client.KLINE_INTERVAL_1DAY,
                               start_date: datetime = type_util.str_to_date("20250101"),

@@ -3,7 +3,6 @@ from datetime import datetime
 from decimal import Decimal
 
 from com.willy.binance.dto.trade_record import TradeRecord
-from com.willy.binance.enums.trade_type import TradeType
 
 
 @dataclass
@@ -16,6 +15,7 @@ class TxnDetail:
     current_price: Decimal
     profit: Decimal
     profit_ratio: Decimal
+    total_profit: Decimal
     force_close_offset_price: Decimal
     break_even_point_price: Decimal
     max_loss: Decimal

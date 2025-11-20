@@ -247,8 +247,8 @@ class HedgeStrategy:
                         # 觸發交易時紀錄交易紀錄
                         trade_record = trade_svc.create_trade_record(kline.start_time, trade_type,
                                                                      trade_plan.price,
-                                                                     trade_plan.amt,
-                                                                     HandleFeeType.MAKER)
+                                                                     amt=trade_plan.amt,
+                                                                     handle_fee_type=HandleFeeType.MAKER)
                         if trade_record:
                             trade_record_list.append(trade_record)
 
