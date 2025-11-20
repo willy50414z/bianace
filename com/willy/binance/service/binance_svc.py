@@ -55,7 +55,8 @@ class BinanceSvc:
         return df
 
     def append_ma(self, kline_df: DataFrame, interval: int):
-        kline_df['ma' + str(interval)] = kline_df['close'].rolling(window=interval, min_periods=interval).mean()
+        kline_df['ma' + str(interval)] = kline_df['close'].rolling(window=interval, min_periods=interval).mean().round(
+            2)
 
     def get_close_ma(self, binance_product: BinanceProduct, kline_interval=Client.KLINE_INTERVAL_1DAY,
                      start_date: datetime = type_util.str_to_datetime("2025-11-10T00:00:00Z"),

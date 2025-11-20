@@ -90,6 +90,7 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
     df = df.loc[mask]
 
     binance_svc.append_ma(df, 7)
+    binance_svc.append_ma(df, 6)
     binance_svc.append_ma(df, 25)
     binance_svc.append_ma(df, 99)
     df = df.dropna(axis=0, how="any")
@@ -99,11 +100,14 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
     trade_detail = TradeDetail(False, False, [])
     idx = 0
     date_idx_map = {}
-    for row in df.itertuples(index=False):
+    trade_amt = None
+    acct_handle_unit = None
+    trade_type = None
+    for row in df.itertuples(index=True, name='Row'):
         date_idx_map[row.start_time] = idx
         idx += 1
         if abs(ma7_and_ma25_rel) >= 20:
-            trade_record = None
+            now_trade_record = None
             if ma7_and_ma25_rel > 0:
                 # ma7在ma25上面持續超過20期
                 if row.ma7 < row.ma25:
@@ -127,12 +131,13 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
                     else:
                         first_available_trade_amt = Decimal(get_first_available_trade_amt(trade_level_list))
 
-                    trade_unit = trade_svc.calc_buyable_units(first_available_trade_amt, Decimal(
-                        row.ma7)) + (handle_unit if handle_unit > 0 else Decimal(0))
-                    trade_record = trade_svc.create_trade_record(row.start_time, TradeType.SELL, Decimal(row.ma7),
-                                                                 unit=trade_unit)
-                    # print(
-                    #     f"date[{row.start_time + relativedelta(**{'hours': 8})}]sell unit[{trade_unit}]amt[{trade_record.handle_amt}]price[{row.ma7}]")
+                    trade_amt = first_available_trade_amt
+                    acct_handle_unit = handle_unit if handle_unit > 0 else Decimal(0)
+                    trade_type = TradeType.SELL
+
+                    unit = trade_svc.calc_buyable_units(trade_amt, Decimal(row.open)) + acct_handle_unit
+                    now_trade_record = trade_svc.create_trade_record(row.start_time, trade_type, Decimal(row.open),
+                                                                     unit=unit, handle_fee_type=HandleFeeType.TAKER)
 
             elif ma7_and_ma25_rel < 0:
                 if row.ma7 > row.ma25:
@@ -156,22 +161,72 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
                     else:
                         first_available_trade_amt = Decimal(get_first_available_trade_amt(trade_level_list))
 
-                    trade_unit = trade_svc.calc_buyable_units(first_available_trade_amt, Decimal(row.ma7)) - (
-                        handle_unit if handle_unit < 0 else Decimal(0))
-                    trade_record = trade_svc.create_trade_record(row.start_time, TradeType.BUY, Decimal(row.ma7),
-                                                                 unit=trade_unit)
+                    trade_amt = first_available_trade_amt
+                    acct_handle_unit = handle_unit if handle_unit < 0 else Decimal(0)
+                    trade_type = TradeType.BUY
 
-                    # print(
-                    #     f"date[{row.start_time + relativedelta(**{'hours': 8})}]buy unit[{trade_unit}]amt[{trade_record.handle_amt}]price[{row.ma7}]")
+                    unit = trade_svc.calc_buyable_units(trade_amt, Decimal(row.open)) - acct_handle_unit
+                    now_trade_record = trade_svc.create_trade_record(row.start_time, trade_type, Decimal(row.open),
+                                                                     unit=unit, handle_fee_type=HandleFeeType.TAKER)
 
-            if trade_record:
-                # print(f"time[{row.start_time}]trade_record[{trade_record}]")
+            # # 達成條件直接用開盤價進場
+            # if now_trade_record:
+            #     trade_svc.build_txn_detail_list_df(row,
+            #                                        invest_amt,
+            #                                        guarantee_amt,
+            #                                        ma_dca_backtest_req.leverage_ratio,
+            #                                        now_trade_record,
+            #                                        trade_detail)
+
+        # 達成條件等MA7才進場
+        if trade_amt and trade_amt > 0:
+            touch_ma_trade_record = None
+            if trade_type == TradeType.BUY:
+                # 做多
+                if row.open <= row.ma7:
+                    # 開盤價已經<=MA7 => 直接買進
+                    unit = trade_svc.calc_buyable_units(trade_amt, Decimal(row.open)) - acct_handle_unit
+                    touch_ma_trade_record = trade_svc.create_trade_record(row.start_time, TradeType.BUY,
+                                                                          Decimal(row.open),
+                                                                          unit=unit,
+                                                                          handle_fee_type=HandleFeeType.TAKER)
+                else:
+                    # 開盤價 > MA7 => 等價格跌到MA7再買進
+                    last_6_close_avg = df.loc[row.Index - 1].ma6
+                    if row.low < last_6_close_avg < row.high:
+                        unit = trade_svc.calc_buyable_units(trade_amt, Decimal(last_6_close_avg)) - acct_handle_unit
+                        touch_ma_trade_record = trade_svc.create_trade_record(row.start_time, TradeType.BUY,
+                                                                              Decimal(last_6_close_avg),
+                                                                              unit=unit,
+                                                                              handle_fee_type=HandleFeeType.MAKER)
+            else:
+                # 做空
+                if row.open >= row.ma7:
+                    # 開盤價已經>=MA7 => 直接賣出
+                    unit = trade_svc.calc_buyable_units(trade_amt, Decimal(row.open)) + acct_handle_unit
+                    touch_ma_trade_record = trade_svc.create_trade_record(row.start_time, TradeType.SELL,
+                                                                          Decimal(row.open),
+                                                                          unit=unit,
+                                                                          handle_fee_type=HandleFeeType.TAKER)
+                else:
+                    # 開盤價 < MA7 => 等價格漲到MA7再賣出
+                    last_6_close_avg = df.loc[row.Index - 1].ma6
+                    if row.low < last_6_close_avg < row.high:
+                        unit = trade_svc.calc_buyable_units(trade_amt, Decimal(last_6_close_avg)) + acct_handle_unit
+                        touch_ma_trade_record = trade_svc.create_trade_record(row.start_time, TradeType.SELL,
+                                                                              Decimal(last_6_close_avg),
+                                                                              unit=unit,
+                                                                              handle_fee_type=HandleFeeType.MAKER)
+            if touch_ma_trade_record:
                 trade_svc.build_txn_detail_list_df(row,
                                                    invest_amt,
                                                    guarantee_amt,
                                                    ma_dca_backtest_req.leverage_ratio,
-                                                   trade_record,
+                                                   touch_ma_trade_record,
                                                    trade_detail)
+                trade_amt = None
+                trade_unit = None
+
         ma7_and_ma25_rel = calc_ma7_and_ma25_rel(ma7_and_ma25_rel, row.ma7, row.ma25)
 
         # 如果是假突破或假跌破(5K內又跌/漲回去)，把買/賣的賣/買回來
@@ -188,20 +243,20 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
                 set_trade_level_by_amt(last_2_td.handle_amt, trade_level_list)
                 # build trade record
                 trade_type = TradeType.BUY if last_1_td.trade_record.type == TradeType.SELL else TradeType.SELL
-                trade_record = trade_svc.create_trade_record(row.start_time, trade_type, Decimal(row.close),
-                                                             unit=last_1_td.trade_record.unit,
-                                                             handle_fee_type=HandleFeeType.TAKER)
+                touch_ma_trade_record = trade_svc.create_trade_record(row.start_time, trade_type, Decimal(row.close),
+                                                                      unit=last_1_td.trade_record.unit,
+                                                                      handle_fee_type=HandleFeeType.TAKER)
                 trade_svc.build_txn_detail_list_df(row,
                                                    invest_amt,
                                                    guarantee_amt,
                                                    ma_dca_backtest_req.leverage_ratio,
-                                                   trade_record,
+                                                   touch_ma_trade_record,
                                                    trade_detail)
 
     for txn_detail in trade_detail.txn_detail_list:
         df.loc[df['start_time'] == txn_detail.date, 'txn_detail'] = txn_detail
 
-    chart_service.export_trade_point_chart("ma_dca", df)
+    chart_service.export_trade_point_chart("ma_dca_ma", df)
 
     print("date\tis_ma25_up\tunit\thandle_amt\thandle_fee\tprice\tprofit\ttotal_profit\ttr.type\ttr.unit")
     for td in trade_detail.txn_detail_list:
