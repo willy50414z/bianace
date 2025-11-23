@@ -127,9 +127,12 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
         last_td = trade_detail.txn_detail_list[len(trade_detail.txn_detail_list) - 1] if len(
             trade_detail.txn_detail_list) > 0 else None
 
+        last_ma7_and_ma25_rel = ma7_and_ma25_rel
+        ma7_and_ma25_rel = calc_ma7_and_ma25_rel(ma7_and_ma25_rel, row.ma7, row.ma25)
+
         # 1. MA7 / MA25 超過20期沒有交叉 > 交叉後確立做多/空方向
-        if abs(ma7_and_ma25_rel) >= 20:
-            if ma7_and_ma25_rel > 0:
+        if abs(last_ma7_and_ma25_rel) >= 20:
+            if last_ma7_and_ma25_rel > 0:
                 # ma7在ma25上面持續超過20期
                 if row.ma7 < row.ma25:
                     # ma7如果跌破ma25的時候賣
@@ -164,8 +167,9 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
                                                        ma_dca_backtest_req.leverage_ratio,
                                                        now_trade_record,
                                                        trade_detail)
+                    continue
 
-            elif ma7_and_ma25_rel < 0:
+            elif last_ma7_and_ma25_rel < 0:
                 if row.ma7 > row.ma25:
                     # ma7如果突破ma25的時候買
                     # # 如果之前做多，現在也做多，價差至少要>1000
@@ -199,6 +203,7 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
                                                        ma_dca_backtest_req.leverage_ratio,
                                                        now_trade_record,
                                                        trade_detail)
+                    continue
         # row.start_time == type_util.str_to_datetime("2025-08-02T13:15:00Z")
 
         # # 2. 等近20期MA25變化<200 > 進場
@@ -264,6 +269,7 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
                                                                                            reason="停損"),
                                                        trade_detail)
                     reset_available_trade_amt(trade_level_list)
+                    continue
                 if last_td.units < 0 and (Decimal(row.high) + last_td.handle_amt / last_td.units) > 1000:
                     trade_svc.build_txn_detail_list_df(row,
                                                        invest_amt,
@@ -274,6 +280,37 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
                                                                                            reason="停損"),
                                                        trade_detail)
                     reset_available_trade_amt(trade_level_list)
+                    continue
+
+        # 如果是假突破或假跌破(5K內又跌/漲回去)，把買/賣的賣/買回來
+        if len(trade_detail.txn_detail_list) > 1:
+            non_stop_loss_td_list = [td for td in trade_detail.txn_detail_list if td.trade_record.reason != "停損"]
+            last_1_td = non_stop_loss_td_list[len(non_stop_loss_td_list) - 1]
+            last_2_td = non_stop_loss_td_list[len(non_stop_loss_td_list) - 2]
+            # 近2個交易是做反向交易
+            # 賣>買>馬上跌破 > 賣
+            # 買>賣>馬上突破 > 買
+            if last_1_td.trade_record.type != last_2_td.trade_record.type \
+                    and ((last_1_td.trade_record.type == TradeType.BUY and row.ma7 < row.ma25 and (
+                    date_idx_map[row.start_time] - date_idx_map[last_1_td.trade_record.date]) < 10) \
+                         or (last_1_td.trade_record.type == TradeType.SELL and row.ma7 > row.ma25 and (
+                            date_idx_map[row.start_time] - date_idx_map[last_1_td.trade_record.date]) < 10)):
+                # set trade amt
+                set_trade_level_by_amt(last_2_td.handle_amt, trade_level_list)
+                # build trade record
+                trade_type = TradeType.BUY if last_1_td.trade_record.type == TradeType.SELL else TradeType.SELL
+                touch_ma_trade_record = trade_svc.create_trade_record(row.start_time, trade_type,
+                                                                      Decimal(row.close),
+                                                                      unit=last_1_td.trade_record.unit,
+                                                                      handle_fee_type=HandleFeeType.TAKER,
+                                                                      reason="假突跌破，認錯回補")
+                trade_svc.build_txn_detail_list_df(row,
+                                                   invest_amt,
+                                                   guarantee_amt,
+                                                   ma_dca_backtest_req.leverage_ratio,
+                                                   touch_ma_trade_record,
+                                                   trade_detail)
+                continue
 
         # # 達成條件等MA7才進場
         # if trade_amt and trade_amt > 0:
@@ -323,33 +360,6 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
         #                                            trade_detail)
         #         trade_amt = None
         #         trade_unit = None
-
-        ma7_and_ma25_rel = calc_ma7_and_ma25_rel(ma7_and_ma25_rel, row.ma7, row.ma25)
-
-        # 如果是假突破或假跌破(5K內又跌/漲回去)，把買/賣的賣/買回來
-        if len(trade_detail.txn_detail_list) > 1:
-            last_1_td = trade_detail.txn_detail_list[len(trade_detail.txn_detail_list) - 1]
-            last_2_td = trade_detail.txn_detail_list[len(trade_detail.txn_detail_list) - 2]
-            # 近2個交易是做反向交易
-            if last_1_td.trade_record.type != last_2_td.trade_record.type \
-                    and ((last_1_td.trade_record.type == TradeType.BUY and row.ma7 < row.ma25 and (
-                    date_idx_map[row.start_time] - date_idx_map[last_1_td.trade_record.date]) < 10) \
-                         or (last_1_td.trade_record.type == TradeType.SELL and row.ma7 > row.ma25 and (
-                            date_idx_map[row.start_time] - date_idx_map[last_1_td.trade_record.date]) < 10)):
-                # set trade amt
-                set_trade_level_by_amt(last_2_td.handle_amt, trade_level_list)
-                # build trade record
-                trade_type = TradeType.BUY if last_1_td.trade_record.type == TradeType.SELL else TradeType.SELL
-                touch_ma_trade_record = trade_svc.create_trade_record(row.start_time, trade_type, Decimal(row.close),
-                                                                      unit=last_1_td.trade_record.unit,
-                                                                      handle_fee_type=HandleFeeType.TAKER,
-                                                                      reason="假突跌破，認錯回補")
-                trade_svc.build_txn_detail_list_df(row,
-                                                   invest_amt,
-                                                   guarantee_amt,
-                                                   ma_dca_backtest_req.leverage_ratio,
-                                                   touch_ma_trade_record,
-                                                   trade_detail)
 
     for txn_detail in trade_detail.txn_detail_list:
         df.loc[df['start_time'] == txn_detail.date, 'txn_detail'] = txn_detail
