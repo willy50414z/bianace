@@ -158,6 +158,12 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
                     now_trade_record = trade_svc.create_trade_record(row.start_time, trade_type, Decimal(row.open),
                                                                      unit=unit, handle_fee_type=HandleFeeType.TAKER,
                                                                      reason="符合條件")
+                    trade_svc.build_txn_detail_list_df(row,
+                                                       invest_amt,
+                                                       guarantee_amt,
+                                                       ma_dca_backtest_req.leverage_ratio,
+                                                       now_trade_record,
+                                                       trade_detail)
 
             elif ma7_and_ma25_rel < 0:
                 if row.ma7 > row.ma25:
@@ -187,40 +193,46 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
                     now_trade_record = trade_svc.create_trade_record(row.start_time, trade_type, Decimal(row.open),
                                                                      unit=unit, handle_fee_type=HandleFeeType.TAKER,
                                                                      reason="符合條件")
+                    trade_svc.build_txn_detail_list_df(row,
+                                                       invest_amt,
+                                                       guarantee_amt,
+                                                       ma_dca_backtest_req.leverage_ratio,
+                                                       now_trade_record,
+                                                       trade_detail)
         # row.start_time == type_util.str_to_datetime("2025-08-02T13:15:00Z")
 
-        # 2. 等近20期MA25變化<200 > 進場
-        # 達成條件直接用開盤價進場
-        if now_trade_record:
-            # 近5個小時MA25不能買?跌:漲超過200點
-            if (now_trade_record.type == TradeType.BUY
-                    and row.ma25 - df.iloc[i - 20].ma25 > -200
-                    and row.close - df.iloc[i - 20].close > -200):
-                trade_svc.build_txn_detail_list_df(row,
-                                                   invest_amt,
-                                                   guarantee_amt,
-                                                   ma_dca_backtest_req.leverage_ratio,
-                                                   trade_svc.create_trade_record(row.start_time, trade_type,
-                                                                                 Decimal(row.open),
-                                                                                 unit=unit,
-                                                                                 handle_fee_type=HandleFeeType.TAKER,
-                                                                                 reason="符合條件"),
-                                                   trade_detail)
-                now_trade_record = None
-            elif (now_trade_record.type == TradeType.SELL
-                  and row.ma25 - df.iloc[i - 20].ma25 < 200
-                  and row.close - df.iloc[i - 20].close < 200):
-                trade_svc.build_txn_detail_list_df(row,
-                                                   invest_amt,
-                                                   guarantee_amt,
-                                                   ma_dca_backtest_req.leverage_ratio,
-                                                   trade_svc.create_trade_record(row.start_time, trade_type,
-                                                                                 Decimal(row.open),
-                                                                                 unit=unit,
-                                                                                 handle_fee_type=HandleFeeType.TAKER,
-                                                                                 reason="符合條件"),
-                                                   trade_detail)
-                now_trade_record = None
+        # # 2. 等近20期MA25變化<200 > 進場
+        # # 達成條件直接用開盤價進場
+        # if now_trade_record:
+        #     # 近5個小時MA25不能買?跌:漲超過200點
+        #     if (now_trade_record.type == TradeType.BUY
+        #             and row.ma25 - df.iloc[i - 20].ma25 > -200
+        #             and row.close - df.iloc[i - 20].close > -200):
+        #         trade_svc.build_txn_detail_list_df(row,
+        #                                            invest_amt,
+        #                                            guarantee_amt,
+        #                                            ma_dca_backtest_req.leverage_ratio,
+        #                                            trade_svc.create_trade_record(row.start_time, trade_type,
+        #                                                                          Decimal(row.open),
+        #                                                                          unit=unit,
+        #                                                                          handle_fee_type=HandleFeeType.TAKER,
+        #                                                                          reason="符合條件"),
+        #                                            trade_detail)
+        #         now_trade_record = None
+        #     elif (now_trade_record.type == TradeType.SELL
+        #           and row.ma25 - df.iloc[i - 20].ma25 < 200
+        #           and row.close - df.iloc[i - 20].close < 200):
+        #         trade_svc.build_txn_detail_list_df(row,
+        #                                            invest_amt,
+        #                                            guarantee_amt,
+        #                                            ma_dca_backtest_req.leverage_ratio,
+        #                                            trade_svc.create_trade_record(row.start_time, trade_type,
+        #                                                                          Decimal(row.open),
+        #                                                                          unit=unit,
+        #                                                                          handle_fee_type=HandleFeeType.TAKER,
+        #                                                                          reason="符合條件"),
+        #                                            trade_detail)
+        #         now_trade_record = None
 
         # 3. 獲利時，MA7/MA25連續3期逐漸變小且<100點 => 停利
         if last_td:
@@ -342,7 +354,7 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
     for txn_detail in trade_detail.txn_detail_list:
         df.loc[df['start_time'] == txn_detail.date, 'txn_detail'] = txn_detail
 
-    chart_service.export_trade_point_chart("ma_dca_now", df)
+    chart_service.export_trade_point_chart("ma_dca_now1", df)
 
     # print("date\tunit\thandle_amt\thandle_fee\tprice\tprofit\ttotal_profit\ttr.type\ttr.unit")
     print("date\tunit\tprofit\ttotal_profit\ttr.type\ttr.unit\ttr.reason")
