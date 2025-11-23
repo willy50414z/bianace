@@ -23,6 +23,7 @@ def calc_max_loss(highest_price: Decimal, lowest_price: Decimal, total_handle_am
 
 def calc_profit(current_price: Decimal, total_handle_amt: Decimal, total_handle_fee, units: Decimal,
                 handle_fee_type=HandleFeeType.TAKER):
+    current_price = Decimal(current_price)
     fee_rate = Decimal(config_util("binance.trade.handle.fee").get(handle_fee_type.name))
     if units > 0:
         # 平倉多倉
@@ -86,12 +87,12 @@ def calc_handle_fee(price: Decimal, units: Decimal, handle_fee_type: HandleFeeTy
 
 
 def calc_trade_amt(price: Decimal, units: Decimal) -> Decimal:
-    return price * units
+    return Decimal(price) * Decimal(units)
 
 
 def create_trade_record(date: datetime, trade_type: TradeType, price: Decimal, amt: Decimal = None,
                         unit: Decimal = None,
-                        handle_fee_type: HandleFeeType = HandleFeeType.TAKER) -> TradeRecord | None:
+                        handle_fee_type: HandleFeeType = HandleFeeType.TAKER, reason: str = "") -> TradeRecord | None:
     if (amt and unit) or (amt is None and unit is None):
         raise ValueError("amt and unit can't both not none")
     if amt:
@@ -100,9 +101,18 @@ def create_trade_record(date: datetime, trade_type: TradeType, price: Decimal, a
         buyable_units = unit
 
     if buyable_units > 0:
-        return TradeRecord(date, trade_type, price, buyable_units, handle_fee_type)
+        return TradeRecord(date, trade_type, price, buyable_units, handle_fee_type, reason)
     else:
         return None
+
+
+def create_close_trade_record(date: datetime, price: Decimal, txn_detail: TxnDetail,
+                              handle_fee_type: HandleFeeType = HandleFeeType.TAKER,
+                              reason: str = "") -> TradeRecord | None:
+    amt = None
+    unit = abs(txn_detail.units)
+    trade_type = TradeType.BUY if txn_detail.units < 0 else TradeType.SELL
+    return create_trade_record(date, trade_type, price, amt, unit, handle_fee_type, reason=reason)
 
 
 def build_txn_detail_list_df(row, invest_amt: Decimal, guarantee_amt: Decimal,

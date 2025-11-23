@@ -13,3 +13,4 @@ class TradeRecord:
     price: Decimal  # 交易價格
     unit: Decimal  # 交易單位
     handle_fee_type: HandleFeeType  # 手續費類別
+    reason: str

@@ -76,7 +76,7 @@ def export_trade_point_chart(chart_name, df):
                 type_="slider",
             ),
         ],
-        # tooltip_opts=opts.TooltipOpts(trigger="axis"),
+        tooltip_opts=opts.TooltipOpts(trigger="axis"),
         toolbox_opts=opts.ToolboxOpts(
             feature={
                 "dataZoom": {"yAxisIndex": "none"},
