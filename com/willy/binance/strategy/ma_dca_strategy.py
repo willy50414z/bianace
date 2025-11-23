@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 import pandas as pd
+from binance import Client
 
 from com.willy.binance.dto.ma_dca_backtest_req import MaDcaBacktestReq
 from com.willy.binance.dto.trade_detail import TradeDetail
@@ -97,13 +98,16 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
     print(trade_level_list)
     # 撈出股價/MA7/ma25
     binance_svc = BinanceSvc()
-    # df = binance_svc.get_historical_klines_df(BinanceProduct.BTCUSDT, Client.KLINE_INTERVAL_15MINUTE,
-    #                                           ma_dca_backtest_req.start_time, ma_dca_backtest_req.end_time)
 
     df = pd.read_csv('E:/code/binance/data/BTCUSDT_15MIN.csv', parse_dates=["start_time", "end_time"])
-    # df = df.apply(parse_datetime_row, axis=1)
-    mask = (df["start_time"] >= ma_dca_backtest_req.start_time) & (df["start_time"] <= ma_dca_backtest_req.end_time)
-    df = df.loc[mask]
+    if df.iloc[0]['start_time'] <= ma_dca_backtest_req.start_time and df.iloc[-1][
+        'start_time'] >= ma_dca_backtest_req.end_time:
+        # df = df.apply(parse_datetime_row, axis=1)
+        mask = (df["start_time"] >= ma_dca_backtest_req.start_time) & (df["start_time"] <= ma_dca_backtest_req.end_time)
+        df = df.loc[mask]
+    else:
+        df = binance_svc.get_historical_klines_df(BinanceProduct.BTCUSDT, Client.KLINE_INTERVAL_15MINUTE,
+                                                  ma_dca_backtest_req.start_time, ma_dca_backtest_req.end_time)
 
     binance_svc.append_ma(df, 7)
     binance_svc.append_ma(df, 6)
@@ -287,6 +291,9 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
             non_stop_loss_td_list = [td for td in trade_detail.txn_detail_list if td.trade_record.reason != "停損"]
             last_1_td = non_stop_loss_td_list[len(non_stop_loss_td_list) - 1]
             last_2_td = non_stop_loss_td_list[len(non_stop_loss_td_list) - 2]
+
+            # last_1_td = trade_detail.txn_detail_list[len(trade_detail.txn_detail_list) - 1]
+            # last_2_td = trade_detail.txn_detail_list[len(trade_detail.txn_detail_list) - 2]
             # 近2個交易是做反向交易
             # 賣>買>馬上跌破 > 賣
             # 買>賣>馬上突破 > 買
@@ -380,7 +387,7 @@ if __name__ == '__main__':
     guarantee_amt = Decimal(5000)
 
     req = MaDcaBacktestReq("simple", BinanceProduct.BTCUSDT, type_util.str_to_datetime("2025-08-01T00:00:00Z"),
-                           type_util.str_to_datetime("2025-10-15T00:00:00Z"), invest_amt, guarantee_amt,
+                           type_util.str_to_datetime("2025-11-15T00:00:00Z"), invest_amt, guarantee_amt,
                            dca_levels=Decimal(10),
                            level_amt_change=Decimal(1.5), leverage_ratio=Decimal(100))
     backtest_ma_dca(req)
