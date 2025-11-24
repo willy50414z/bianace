@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 import pandas as pd
+from pandas import DataFrame
 from pyecharts import options as opts
 from pyecharts.charts import Line
 
@@ -86,7 +87,73 @@ def export_trade_point_chart(chart_name, df):
         ),
     )
 
-    line_chart.render(f"E:/code/binance/charts/{chart_name}.html")
+    # line_chart.render(f"E:/code/binance/charts/{chart_name}.html")
+
+    chart_html = line_chart.render_embed()
+
+    # Convert DataFrame to HTML table
+    txn_detail_df = df[df['txn_detail'].notna()][["start_time", "txn_detail"]]
+    df2 = DataFrame()
+    df2['date'] = txn_detail_df['txn_detail'].apply(lambda d: d.trade_record.date)
+    df2['reason'] = txn_detail_df['txn_detail'].apply(lambda d: d.trade_record.reason)
+    table_html = df2.to_html(index=False, border=1)
+
+    # Combine
+    final_html = """
+    <!DOCTYPE html>
+    <meta charset="utf-8">
+<html>
+<head>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.0/echarts.min.js"></script>
+    <style>
+        /* 让 chart 和 table 在同一行 */
+        .layout {
+    display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            gap: 20px; /* 两边的间距，可以按需调整 */
+        }
+
+        /* chart 占据的宽度（可按需求调整） */
+        .chart {
+    width: 60%;   /* 例如占屏幕宽度的 60% */
+            min-width: 300px;
+        }
+
+        /* 可滚动的表格容器 */
+        .table-container {
+    width: 40%;   /* 与 chart 相对 */
+            min-width: 300px;
+            max-height: 500px; /* 设定一个固定高度，超出就滚动 */
+            overflow: auto;
+            border: 1px solid #ddd;
+        }
+
+        /* 表格样式（保持原有样式） */
+        table {margin: 0; border-collapse: collapse; width: 100%; }
+        th, td {padding: 10px; text-align: left; border-bottom: 1px solid #eee; }
+        /* 你原本的样式 */
+        /* table {margin: 20px auto; border-collapse: collapse; }
+           th, td {padding: 10px; text-align: left; } */
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <div class="chart" id="chart-container">
+            """ + chart_html + """
+        </div>
+
+        <!-- 滚动表格区域 -->
+        <div class="table-container" aria-label="滚动表格">
+            """ + table_html + """
+        </div>
+    </div>
+</body>
+</html>
+    """
+
+    with open(f"E:/code/binance/charts/{chart_name}.html", "w", encoding="utf-8") as f:
+        f.write(final_html)
 
     # line_chart2 = Line()
     # line_chart2.add_xaxis(xaxis_data=date_list)
