@@ -75,7 +75,7 @@ def calc_buyable_units(invest_amt: Decimal, price: Decimal) -> Decimal:
     Returns:
 
     """
-    if invest_amt <= Decimal("0"):
+    if invest_amt is None or invest_amt <= Decimal("0"):
         return Decimal("0")
     return (invest_amt / price).quantize(Decimal("0.001"), rounding=ROUND_FLOOR)
 
@@ -83,6 +83,8 @@ def calc_buyable_units(invest_amt: Decimal, price: Decimal) -> Decimal:
 def calc_handle_fee(price: Decimal, units: Decimal, handle_fee_type: HandleFeeType = HandleFeeType.TAKER
                     ) -> Decimal:
     handle_fee_ratio = Decimal(config_util("binance.trade.handle.fee").get(handle_fee_type.name))
+    units = Decimal(units)
+    price = Decimal(price)
     return (price * units * handle_fee_ratio).quantize(DECIMAL_PLACE_2, rounding=ROUND_CEILING)
 
 
@@ -95,12 +97,14 @@ def create_trade_record(date: datetime, trade_type: TradeType, price: Decimal, a
                         handle_fee_type: HandleFeeType = HandleFeeType.TAKER, reason: str = "") -> TradeRecord | None:
     if (amt and unit) or (amt is None and unit is None):
         raise ValueError("amt and unit can't both not none")
+
+    buyable_units = None
     if amt:
         buyable_units = calc_buyable_units(amt, price)
     if unit:
         buyable_units = unit
 
-    if buyable_units > 0:
+    if buyable_units and buyable_units > 0:
         return TradeRecord(date, trade_type, price, buyable_units, handle_fee_type, reason)
     else:
         return None
@@ -118,6 +122,8 @@ def create_close_trade_record(date: datetime, price: Decimal, txn_detail: TxnDet
 def build_txn_detail_list_df(row, invest_amt: Decimal, guarantee_amt: Decimal,
                              leverage_ratio: Decimal,
                              trade_record: TradeRecord | None, trade_detail: TradeDetail):
+    if trade_record is None:
+        return
     return build_txn_detail_list(
         BinanceKline(row.start_time, Decimal(row.open), Decimal(row.high), Decimal(row.low), Decimal(row.close),
                      Decimal(row.vol), row.end_time,

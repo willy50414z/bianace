@@ -21,13 +21,17 @@ def export_trade_point_chart(chart_name, df):
 
     buy_point_list = []
     sell_point_list = []
+    stop_loss_point_list = []
     total_profit_list = []
     for row in df.itertuples(index=False):
         if not pd.isna(row.txn_detail):
-            if row.txn_detail.trade_record.type == TradeType.BUY:
-                buy_point_list.append((row.start_time.strftime('%Y-%m-%d %H:%M:%S'), row.close, "BUY"))
+            if row.txn_detail.trade_record.reason == "停損":
+                stop_loss_point_list.append((row.start_time.strftime('%Y-%m-%d %H:%M:%S'), row.close, "STOP_LOSS"))
             else:
-                sell_point_list.append((row.start_time.strftime('%Y-%m-%d %H:%M:%S'), row.close, "SEll"))
+                if row.txn_detail.trade_record.type == TradeType.BUY:
+                    buy_point_list.append((row.start_time.strftime('%Y-%m-%d %H:%M:%S'), row.close, "BUY"))
+                else:
+                    sell_point_list.append((row.start_time.strftime('%Y-%m-%d %H:%M:%S'), row.close, "SEll"))
             total_profit_list.append(row.txn_detail.total_profit)
         else:
             if len(total_profit_list) > 0:
@@ -55,7 +59,10 @@ def export_trade_point_chart(chart_name, df):
                   buy_point_list]
                  + [opts.MarkPointItem(name=f"{p[0]} {p[1]}", itemstyle_opts={"color": "#F6465D"}, coord=[p[0], p[1]])
                     for p in
-                    sell_point_list]  # 依需求調整
+                    sell_point_list] + [
+                     opts.MarkPointItem(name=f"{p[0]} {p[1]}", itemstyle_opts={"color": "#00A2E8"}, coord=[p[0], p[1]])
+                     for p in
+                     stop_loss_point_list]
 
         ))
 
@@ -94,7 +101,11 @@ def export_trade_point_chart(chart_name, df):
     # Convert DataFrame to HTML table
     txn_detail_df = df[df['txn_detail'].notna()][["start_time", "txn_detail"]]
     df2 = DataFrame()
-    df2['date'] = txn_detail_df['txn_detail'].apply(lambda d: d.trade_record.date)
+    df2['date'] = txn_detail_df['txn_detail'].apply(lambda d: d.trade_record.date.strftime('%Y%m%d %H:%M:%S'))
+    df2['units'] = txn_detail_df['txn_detail'].apply(lambda d: d.units)
+    df2['price'] = txn_detail_df['txn_detail'].apply(lambda d: round(d.trade_record.price, 2))
+    df2['profit'] = txn_detail_df['txn_detail'].apply(lambda d: d.profit)
+    df2['total_profit'] = txn_detail_df['txn_detail'].apply(lambda d: d.total_profit)
     df2['reason'] = txn_detail_df['txn_detail'].apply(lambda d: d.trade_record.reason)
     table_html = df2.to_html(index=False, border=1)
 
