@@ -8,6 +8,7 @@ from com.willy.binance.dto.ma_dca_backtest_req import MaDcaBacktestReq
 from com.willy.binance.dto.trade_detail import TradeDetail
 from com.willy.binance.enums.binance_product import BinanceProduct
 from com.willy.binance.enums.handle_fee_type import HandleFeeType
+from com.willy.binance.enums.trade_reason import TradeReasonType, TradeReason
 from com.willy.binance.enums.trade_type import TradeType
 from com.willy.binance.service import trade_svc, chart_service
 from com.willy.binance.service.binance_svc import BinanceSvc
@@ -92,7 +93,9 @@ def trade_if_not_trade_twice(row,
                                                    leverage_ratio,
                                                    trade_svc.create_close_trade_record(now_trade_record.date,
                                                                                        now_trade_record.price, last_td,
-                                                                                       reason="同向交易攤平"),
+                                                                                       reason=TradeReason(
+                                                                                           TradeReasonType.PASSIVE,
+                                                                                           "同向交易攤平")),
                                                    trade_detail)
                 reset_available_trade_amt(trade_level_list)
                 return
@@ -148,6 +151,7 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
     binance_svc.append_ma(df, 6)
     binance_svc.append_ma(df, 25)
     binance_svc.append_ma(df, 99)
+
     df = df.dropna(axis=0, how="any")
 
     # 逐筆確認買進或賣出
@@ -179,7 +183,9 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
                                                trade_svc.create_close_trade_record(row.start_time,
                                                                                    last_td.force_close_offset_price,
                                                                                    last_td,
-                                                                                   reason="爆倉"),
+                                                                                   reason=TradeReason(
+                                                                                       TradeReasonType.PASSIVE,
+                                                                                       "爆倉")),
                                                trade_detail)
             continue
 
@@ -213,7 +219,8 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
                     unit = trade_svc.calc_buyable_units(trade_amt, Decimal(row.open)) + acct_handle_unit
                     now_trade_record = trade_svc.create_trade_record(row.start_time, trade_type, Decimal(row.open),
                                                                      unit=unit, handle_fee_type=HandleFeeType.TAKER,
-                                                                     reason="符合條件")
+                                                                     reason=TradeReason(TradeReasonType.ACTIVE,
+                                                                                        "符合條件"))
 
                     # 6. 連續2次符合條件且方向相同，直接平倉
                     trade_if_not_trade_twice(row,
@@ -257,7 +264,8 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
                     unit = trade_svc.calc_buyable_units(trade_amt, Decimal(row.open)) - acct_handle_unit
                     now_trade_record = trade_svc.create_trade_record(row.start_time, trade_type, Decimal(row.open),
                                                                      unit=unit, handle_fee_type=HandleFeeType.TAKER,
-                                                                     reason="符合條件")
+                                                                     reason=TradeReason(TradeReasonType.ACTIVE,
+                                                                                        "符合條件"))
 
                     # 6. 連續2次符合條件且方向相同，直接平倉
                     trade_if_not_trade_twice(row,
@@ -366,7 +374,9 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
                                                        ma_dca_backtest_req.leverage_ratio,
                                                        trade_svc.create_close_trade_record(row.start_time, round(
                                                            last_td.handle_amt / last_td.units, 2) - 1000, last_td,
-                                                                                           reason="停損"),
+                                                                                           reason=TradeReason(
+                                                                                               TradeReasonType.PASSIVE,
+                                                                                               "停損")),
                                                        trade_detail)
                     reset_available_trade_amt(trade_level_list)
                     continue
@@ -377,7 +387,9 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
                                                        ma_dca_backtest_req.leverage_ratio,
                                                        trade_svc.create_close_trade_record(row.start_time, round(
                                                            last_td.handle_amt / last_td.units * -1, 2) + 1000, last_td,
-                                                                                           reason="停損"),
+                                                                                           reason=TradeReason(
+                                                                                               TradeReasonType.PASSIVE,
+                                                                                               "停損")),
                                                        trade_detail)
                     reset_available_trade_amt(trade_level_list)
                     continue
@@ -385,7 +397,7 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
         # 如果是假突破或假跌破(5K內又跌/漲回去)，把買/賣的賣/買回來
         if len(trade_detail.txn_detail_list) > 1:
             non_stop_loss_td_list = [td for td in trade_detail.txn_detail_list if
-                                     td.trade_record.reason != "停損" and td.trade_record.reason != "爆倉"]
+                                     td.trade_record.reason.trade_reason_type != TradeReasonType.PASSIVE]
             last_1_td = non_stop_loss_td_list[len(non_stop_loss_td_list) - 1]
             last_2_td = non_stop_loss_td_list[len(non_stop_loss_td_list) - 2]
 
@@ -407,7 +419,9 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
                                                                       Decimal(row.close),
                                                                       unit=abs(last_2_td.units) + abs(last_1_td.units),
                                                                       handle_fee_type=HandleFeeType.TAKER,
-                                                                      reason="假突跌破，認錯回補")
+                                                                      reason=TradeReason(
+                                                                          TradeReasonType.ACTIVE,
+                                                                          "假突跌破，認錯回補"))
                 trade_svc.build_txn_detail_list_df(row,
                                                    invest_amt,
                                                    guarantee_amt,
@@ -483,8 +497,8 @@ if __name__ == '__main__':
     invest_amt = Decimal(5000)
     guarantee_amt = Decimal(5000)
 
-    req = MaDcaBacktestReq("simple", BinanceProduct.BTCUSDT, type_util.str_to_datetime("2025-11-01T00:00:00Z"),
-                           type_util.str_to_datetime("2025-11-30T17:00:00Z"), invest_amt, guarantee_amt,
+    req = MaDcaBacktestReq("simple", BinanceProduct.BTCUSDT, type_util.str_to_datetime("2025-04-01T00:00:00Z"),
+                           type_util.str_to_datetime("2025-06-30T17:00:00Z"), invest_amt, guarantee_amt,
                            dca_levels=Decimal(5),
                            level_amt_change=Decimal(1), leverage_ratio=Decimal(20))
     backtest_ma_dca(req)

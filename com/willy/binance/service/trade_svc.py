@@ -1,6 +1,9 @@
 from datetime import datetime
 from decimal import Decimal, ROUND_FLOOR, ROUND_CEILING
 
+import numpy as np
+import pandas as pd
+
 from com.willy.binance.config.config_util import config_util
 from com.willy.binance.config.const import DECIMAL_PLACE_2
 from com.willy.binance.dto.binance_kline import BinanceKline
@@ -8,6 +11,7 @@ from com.willy.binance.dto.trade_detail import TradeDetail
 from com.willy.binance.dto.trade_record import TradeRecord
 from com.willy.binance.dto.txn_detail import TxnDetail
 from com.willy.binance.enums.handle_fee_type import HandleFeeType
+from com.willy.binance.enums.trade_reason import TradeReason
 from com.willy.binance.enums.trade_type import TradeType
 
 
@@ -94,7 +98,8 @@ def calc_trade_amt(price: Decimal, units: Decimal) -> Decimal:
 
 def create_trade_record(date: datetime, trade_type: TradeType, price: Decimal, amt: Decimal = None,
                         unit: Decimal = None,
-                        handle_fee_type: HandleFeeType = HandleFeeType.TAKER, reason: str = "") -> TradeRecord | None:
+                        handle_fee_type: HandleFeeType = HandleFeeType.TAKER,
+                        reason: TradeReason = "") -> TradeRecord | None:
     if (amt and unit) or (amt is None and unit is None):
         raise ValueError("amt and unit can't both not none")
 
@@ -112,7 +117,7 @@ def create_trade_record(date: datetime, trade_type: TradeType, price: Decimal, a
 
 def create_close_trade_record(date: datetime, price: Decimal, txn_detail: TxnDetail,
                               handle_fee_type: HandleFeeType = HandleFeeType.TAKER,
-                              reason: str = "") -> TradeRecord | None:
+                              reason: TradeReason = "") -> TradeRecord | None:
     amt = None
     unit = abs(txn_detail.units)
     trade_type = TradeType.BUY if txn_detail.units < 0 else TradeType.SELL
@@ -355,3 +360,125 @@ if __name__ == '__main__':
                      datetime.now(), 100), Decimal(1000), Decimal(4000), Decimal(100), tr6, trade_detail)
 
     print(trade_detail.txn_detail_list)
+
+
+def analyze_trading_strategy(df: pd.DataFrame, initial_capital: float, risk_free_rate: float = 0.02) -> pd.DataFrame:
+    """
+    分析交易策略的績效指標。
+
+    Args:
+        df: 交易紀錄 DataFrame，包含 date, profit, total_profit 等欄位。
+        initial_capital: 策略的初始資金。
+        risk_free_rate: 年化無風險利率 (預設 2%)。
+
+    Returns:
+        包含統計數據的 DataFrame。
+    """
+
+    # --- 1. 數據準備與淨值曲線計算 ---
+    df = df.copy()
+
+    # 確保 date 是 datetime 類型且排序
+    df['date'] = pd.to_datetime(df['date'])
+    df = df.sort_values(by='date').reset_index(drop=True)
+
+    # 計算淨值曲線 (Equity Curve)
+    df['equity'] = initial_capital + df['total_profit']
+
+    # 策略運行的總日數 (用於年化計算)
+    if len(df) > 1:
+        total_days = (df['date'].iloc[-1] - df['date'].iloc[0]).days
+    else:
+        total_days = 1  # 避免除以零
+
+    years = total_days / 365.25 if total_days > 0 else 1
+
+    # 計算每日或每次操作的報酬率
+    # 這裡使用淨值的變化率作為報酬率
+    df['returns'] = df['equity'].pct_change().fillna(0)
+
+    # --- 2. 報酬指標 (Return Metrics) ---
+    final_equity = df['equity'].iloc[-1]
+    total_return = (final_equity / initial_capital) - 1
+
+    # 年化報酬率 (Compound Annual Growth Rate, CAGR)
+    cagr = ((float(final_equity) / float(initial_capital)) ** (1 / years)) - 1 if years > 0 else 0
+
+    # 獲利因子 (Profit Factor)
+    winning_trades = df[df['profit'] > 0]['profit'].sum()
+    losing_trades = df[df['profit'] < 0]['profit'].sum()
+    profit_factor = winning_trades / abs(losing_trades) if losing_trades != 0 else np.inf
+
+    # --- 3. 風險指標 (Risk Metrics) ---
+
+    # 最大回檔 (Max Drawdown, MDD)
+    df['peak'] = df['equity'].cummax()
+    df['drawdown'] = (df['equity'] / df['peak']) - 1
+    max_drawdown = df['drawdown'].min()
+
+    # 年化波動度 (Volatility)
+    # 這裡使用操作報酬率的標準差，並年化 (假設每天一次操作，如果頻率不同需調整)
+    # 更標準的做法是使用日頻率的報酬，但這裡我們根據現有數據計算
+    annual_volatility = df['returns'].astype(float).std() * np.sqrt(252)  # 假設一年252個交易日
+
+    # 夏普比率 (Sharpe Ratio)
+    # 假設使用 CAGR 作為策略報酬率
+    sharpe_ratio = (cagr - risk_free_rate) / annual_volatility if annual_volatility != 0 else np.inf
+
+    # --- 4. 交易特性指標 (Trade Metrics) ---
+
+    # 總交易筆數 (假設 profit 不為 0 算一筆平倉交易)
+    total_trades = df[df['profit'] != 0].shape[0]
+
+    # 勝率 (Win Rate)
+    winning_trades_count = df[df['profit'] > 0].shape[0]
+    win_rate = winning_trades_count / total_trades if total_trades > 0 else 0
+
+    # 平均獲利/虧損
+    avg_win = df[df['profit'] > 0]['profit'].mean()
+    avg_loss = df[df['profit'] < 0]['profit'].mean()
+
+    # 最大連續虧損次數 (Max Consecutive Losses)
+    loss_series = (df['profit'] < 0).astype(int)
+    max_consecutive_losses = 0
+    current_consecutive_losses = 0
+    for is_loss in loss_series:
+        if is_loss:
+            current_consecutive_losses += 1
+        else:
+            max_consecutive_losses = max(max_consecutive_losses, current_consecutive_losses)
+            current_consecutive_losses = 0
+    max_consecutive_losses = max(max_consecutive_losses, current_consecutive_losses)  # 考慮最後一波連虧
+
+    # --- 5. 整理輸出結果 ---
+    results = {
+        '總結期間 (天)': total_days,
+        '總交易筆數': total_trades,
+
+        # 報酬指標
+        '總報酬率 (%)': total_return * 100,
+        '年化報酬率 CAGR (%)': cagr * 100,
+        '獲利因子': profit_factor,
+
+        # 風險指標
+        '最大回檔 MDD (%)': abs(max_drawdown) * 100,
+        '年化波動度 (%)': annual_volatility * 100,
+        '夏普比率': sharpe_ratio,
+
+        # 交易特性指標
+        '勝率 (%)': win_rate * 100,
+        '平均獲利金額': avg_win,
+        '平均虧損金額 (絕對值)': abs(avg_loss),
+        '最大連續虧損次數': max_consecutive_losses,
+        '平均賺賠比': abs(avg_win / avg_loss) if avg_loss != 0 else np.inf,
+    }
+
+    # 將結果轉換為 DataFrame
+    results_series = pd.Series(results)
+
+    # 2. 轉換為 2 列 N 欄的 DataFrame (轉置)
+    # .to_frame(): 將 Series 轉為一列多行的 DataFrame
+    # .T (Transpose): 將 DataFrame 轉置為 N 列一行 (符合您的要求)
+    results_df_horizontal = results_series.to_frame().T
+
+    return results_df_horizontal
