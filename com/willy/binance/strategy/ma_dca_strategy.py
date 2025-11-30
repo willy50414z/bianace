@@ -388,7 +388,7 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
     for txn_detail in trade_detail.txn_detail_list:
         df.loc[df['start_time'] == txn_detail.date, 'txn_detail'] = txn_detail
 
-    chart_service.export_trade_point_chart("ma_dca_now1", df)
+    chart_service.export_trade_point_chart("ma_dca_now1", df, ma_dca_backtest_req)
 
     # print("date\tunit\thandle_amt\thandle_fee\tprice\tprofit\ttotal_profit\ttr.type\ttr.unit")
     print("date\tunit\tprofit\ttotal_profit\ttr.type\ttr.unit\ttr.reason")
