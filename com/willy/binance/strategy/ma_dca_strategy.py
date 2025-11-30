@@ -113,7 +113,7 @@ def trade_if_cross_ma(last_ma7_and_ma25_rel, row, trade_detail, last_td, trade_l
     if abs(last_ma7_and_ma25_rel) >= 20:
         if last_ma7_and_ma25_rel > 0:
             # ma7在ma25上面持續超過20期
-            if row.ma7 < row.ma25:
+            if row.ma7 < row.ma25 and not row.past20_ma25_growth:
                 # ma7如果跌破ma25的時候賣
                 # # 如果之前做空，現在也做空，價差至少要>1000
                 # if last_td and last_td.trade_record.type == TradeType.SELL and abs(
@@ -158,7 +158,7 @@ def trade_if_cross_ma(last_ma7_and_ma25_rel, row, trade_detail, last_td, trade_l
                 return True
 
         elif last_ma7_and_ma25_rel < 0:
-            if row.ma7 > row.ma25:
+            if row.ma7 > row.ma25 and not row.past20_ma25_fall:
                 # ma7如果突破ma25的時候買
                 # # 如果之前做多，現在也做多，價差至少要>1000
                 # if last_td and last_td.trade_record.type == TradeType.BUY and abs(
@@ -326,8 +326,19 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
     binance_svc.append_ma(df, 25)
     binance_svc.append_ma(df, 99)
 
-    df['close_5max'] = df['close'].rolling(window=5).max().shift(1)
-    df['close_5min'] = df['close'].rolling(window=5).min().shift(1)
+    # MA過去20天是否都上漲/下跌
+    df['ma25_diff'] = df['ma25'].diff()
+
+    diff_int = df['ma25_diff'] > 0
+    diff_int = diff_int.astype(int)
+    past20_growth = diff_int.rolling(window=20, min_periods=20).min()
+    df['past20_ma25_growth'] = past20_growth.astype(bool)
+
+    diff_ma25_diff = df['ma25_diff'] < 0
+    diff_int = diff_ma25_diff.astype(int)
+    past20_ma25_fall = diff_int.rolling(window=20, min_periods=20).min()
+    df['past20_ma25_fall'] = past20_ma25_fall.astype(bool)
+
     df = df.dropna(axis=0, how="any")
 
     # 逐筆確認買進或賣出
@@ -335,10 +346,6 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
     trade_detail = TradeDetail(False, False, [])
     idx = 0
     date_idx_map = {}
-    trade_amt = None
-    acct_handle_unit = None
-    trade_type = None
-    now_trade_record = None
     for i, r in enumerate(df.itertuples(index=True, name='Row')):
         row = df.iloc[i]
         date_idx_map[row.start_time] = idx
@@ -396,7 +403,7 @@ if __name__ == '__main__':
     invest_amt = Decimal(5000)
     guarantee_amt = Decimal(5000)
 
-    req = MaDcaBacktestReq("simple", BinanceProduct.BTCUSDT, type_util.str_to_datetime("2025-04-01T00:00:00Z"),
+    req = MaDcaBacktestReq("simple", BinanceProduct.BTCUSDT, type_util.str_to_datetime("2024-09-01T00:00:00Z"),
                            type_util.str_to_datetime("2025-06-30T17:00:00Z"), invest_amt, guarantee_amt,
                            dca_levels=Decimal(5),
                            level_amt_change=Decimal(1), leverage_ratio=Decimal(20))
