@@ -108,6 +108,180 @@ def trade_if_not_trade_twice(row,
                                        trade_detail)
 
 
+def trade_if_cross_ma(last_ma7_and_ma25_rel, row, trade_detail, last_td, trade_level_list, leverage_ratio):
+    # 1. MA7 / MA25 超過20期沒有交叉 > 交叉後確立做多/空方向
+    if abs(last_ma7_and_ma25_rel) >= 20:
+        if last_ma7_and_ma25_rel > 0:
+            # ma7在ma25上面持續超過20期
+            if row.ma7 < row.ma25:
+                # ma7如果跌破ma25的時候賣
+                # # 如果之前做空，現在也做空，價差至少要>1000
+                # if last_td and last_td.trade_record.type == TradeType.SELL and abs(
+                #         last_td.trade_record.price - Decimal(row.ma7)) < 1000:
+                #     continue
+
+                # 如果之前是做多，現在要改做空，所以sell amt要包含之前做多的一起平掉
+                if len(trade_detail.txn_detail_list) > 0:
+                    handle_unit = last_td.units
+                else:
+                    handle_unit = Decimal(0)
+
+                if handle_unit > 0:
+                    # 之前是做多，改放空的時候要reset trade_amt_list後取得第一階trade amt
+                    first_available_trade_amt = reset_trade_level_list_and_get_first(trade_level_list)
+                else:
+                    first_available_trade_amt = Decimal(get_first_available_trade_amt(trade_level_list))
+
+                trade_amt = first_available_trade_amt
+                acct_handle_unit = handle_unit if handle_unit > 0 else Decimal(0)
+                trade_type = TradeType.SELL
+
+                unit = trade_svc.calc_buyable_units(trade_amt, Decimal(row.open)) + acct_handle_unit
+                now_trade_record = trade_svc.create_trade_record(row.start_time, trade_type, Decimal(row.open),
+                                                                 unit=unit, handle_fee_type=HandleFeeType.TAKER,
+                                                                 reason=TradeReason(TradeReasonType.ACTIVE,
+                                                                                    "符合條件"))
+
+                # 6. 連續2次符合條件且方向相同，直接平倉
+                trade_if_not_trade_twice(row,
+                                         invest_amt,
+                                         guarantee_amt,
+                                         leverage_ratio,
+                                         now_trade_record,
+                                         trade_detail, trade_level_list)
+                # trade_svc.build_txn_detail_list_df(row,
+                #                                    invest_amt,
+                #                                    guarantee_amt,
+                #                                    ma_dca_backtest_req.leverage_ratio,
+                #                                    now_trade_record,
+                #                                    trade_detail)
+                return True
+
+        elif last_ma7_and_ma25_rel < 0:
+            if row.ma7 > row.ma25:
+                # ma7如果突破ma25的時候買
+                # # 如果之前做多，現在也做多，價差至少要>1000
+                # if last_td and last_td.trade_record.type == TradeType.BUY and abs(
+                #         last_td.trade_record.price - Decimal(row.ma7)) < 1000:
+                #     continue
+
+                # 如果之前是做空，現在要改做多，所以buy amt要包含之前做多的一起平掉
+                if len(trade_detail.txn_detail_list) > 0:
+                    handle_unit = trade_detail.txn_detail_list[len(trade_detail.txn_detail_list) - 1].units
+                else:
+                    handle_unit = Decimal(0)
+
+                if handle_unit < 0:
+                    # 之前是做多，改放空的時候要reset trade_amt_list後取得第一階trade amt
+                    first_available_trade_amt = reset_trade_level_list_and_get_first(trade_level_list)
+                else:
+                    first_available_trade_amt = Decimal(get_first_available_trade_amt(trade_level_list))
+
+                trade_amt = first_available_trade_amt
+                acct_handle_unit = handle_unit if handle_unit < 0 else Decimal(0)
+                trade_type = TradeType.BUY
+
+                unit = trade_svc.calc_buyable_units(trade_amt, Decimal(row.open)) - acct_handle_unit
+                now_trade_record = trade_svc.create_trade_record(row.start_time, trade_type, Decimal(row.open),
+                                                                 unit=unit, handle_fee_type=HandleFeeType.TAKER,
+                                                                 reason=TradeReason(TradeReasonType.ACTIVE,
+                                                                                    "符合條件"))
+
+                # 6. 連續2次符合條件且方向相同，直接平倉
+                trade_if_not_trade_twice(row,
+                                         invest_amt,
+                                         guarantee_amt,
+                                         leverage_ratio,
+                                         now_trade_record,
+                                         trade_detail, trade_level_list)
+                return True
+
+
+def stop_loss(last_td, row, leverage_ratio, trade_detail, trade_level_list):
+    if last_td:
+        unrealize_profit = trade_svc.calc_profit(row.close, last_td.handle_amt, last_td.handling_fee, last_td.units)
+        if unrealize_profit and unrealize_profit > 0:
+            is_need_close = False
+            # if abs(df.iloc[i - 2].ma7 - df.iloc[i - 2].ma25) > abs(df.iloc[i - 1].ma7 - df.iloc[i - 1].ma25) > abs(
+            #         df.iloc[i].ma7 - df.iloc[i].ma25) < 100:
+            #     is_need_close = True
+            #
+            # if is_need_close:
+            #     trade_svc.build_txn_detail_list_df(row,
+            #                                        invest_amt,
+            #                                        guarantee_amt,
+            #                                        ma_dca_backtest_req.leverage_ratio,
+            #                                        trade_svc.create_close_trade_record(row.start_time, row.close,
+            #                                                                            last_td, reason="停利"),
+            #                                        trade_detail)
+            #     reset_available_trade_amt(trade_level_list)
+        elif unrealize_profit and unrealize_profit < 0:
+            # 5. 虧損超過1000點 => 停損
+            if last_td.units > 0 and (last_td.handle_amt / last_td.units - Decimal(row.low)) > 1000:
+                trade_svc.build_txn_detail_list_df(row,
+                                                   invest_amt,
+                                                   guarantee_amt,
+                                                   leverage_ratio,
+                                                   trade_svc.create_close_trade_record(row.start_time, round(
+                                                       last_td.handle_amt / last_td.units, 2) - 1000, last_td,
+                                                                                       reason=TradeReason(
+                                                                                           TradeReasonType.PASSIVE,
+                                                                                           "停損")),
+                                                   trade_detail)
+                reset_available_trade_amt(trade_level_list)
+                return True
+            if last_td.units < 0 and (Decimal(row.high) + last_td.handle_amt / last_td.units) > 1000:
+                trade_svc.build_txn_detail_list_df(row,
+                                                   invest_amt,
+                                                   guarantee_amt,
+                                                   leverage_ratio,
+                                                   trade_svc.create_close_trade_record(row.start_time, round(
+                                                       last_td.handle_amt / last_td.units * -1, 2) + 1000, last_td,
+                                                                                       reason=TradeReason(
+                                                                                           TradeReasonType.PASSIVE,
+                                                                                           "停損")),
+                                                   trade_detail)
+                reset_available_trade_amt(trade_level_list)
+                return True
+
+
+def fake_break(trade_detail, row, date_idx_map, trade_level_list, leverage_ratio):
+    if len(trade_detail.txn_detail_list) > 1:
+        non_stop_loss_td_list = [td for td in trade_detail.txn_detail_list if
+                                 td.trade_record.reason.trade_reason_type != TradeReasonType.PASSIVE]
+        last_1_td = non_stop_loss_td_list[len(non_stop_loss_td_list) - 1]
+        last_2_td = non_stop_loss_td_list[len(non_stop_loss_td_list) - 2]
+
+        # last_1_td = trade_detail.txn_detail_list[len(trade_detail.txn_detail_list) - 1]
+        # last_2_td = trade_detail.txn_detail_list[len(trade_detail.txn_detail_list) - 2]
+        # 近2個交易是做反向交易
+        # 賣>買>馬上跌破 > 賣
+        # 買>賣>馬上突破 > 買
+        if last_1_td.trade_record.type != last_2_td.trade_record.type \
+                and ((last_1_td.trade_record.type == TradeType.BUY and row.ma7 < row.ma25 and (
+                date_idx_map[row.start_time] - date_idx_map[last_1_td.trade_record.date]) < 10) \
+                     or (last_1_td.trade_record.type == TradeType.SELL and row.ma7 > row.ma25 and (
+                        date_idx_map[row.start_time] - date_idx_map[last_1_td.trade_record.date]) < 10)):
+            # set trade amt
+            set_trade_level_by_amt(last_2_td.handle_amt, trade_level_list)
+            # build trade record
+            trade_type = TradeType.BUY if last_1_td.trade_record.type == TradeType.SELL else TradeType.SELL
+            touch_ma_trade_record = trade_svc.create_trade_record(row.start_time, trade_type,
+                                                                  Decimal(row.close),
+                                                                  unit=abs(last_2_td.units) + abs(last_1_td.units),
+                                                                  handle_fee_type=HandleFeeType.TAKER,
+                                                                  reason=TradeReason(
+                                                                      TradeReasonType.ACTIVE,
+                                                                      "假突跌破，認錯回補"))
+            trade_svc.build_txn_detail_list_df(row,
+                                               invest_amt,
+                                               guarantee_amt,
+                                               leverage_ratio,
+                                               touch_ma_trade_record,
+                                               trade_detail)
+            return True
+
+
 def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
     """
 
@@ -152,6 +326,8 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
     binance_svc.append_ma(df, 25)
     binance_svc.append_ma(df, 99)
 
+    df['close_5max'] = df['close'].rolling(window=5).max().shift(1)
+    df['close_5min'] = df['close'].rolling(window=5).min().shift(1)
     df = df.dropna(axis=0, how="any")
 
     # 逐筆確認買進或賣出
@@ -173,6 +349,11 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
         last_ma7_and_ma25_rel = ma7_and_ma25_rel
         ma7_and_ma25_rel = calc_ma7_and_ma25_rel(ma7_and_ma25_rel, row.ma7, row.ma25)
 
+        # 1. MA7 / MA25 超過20期沒有交叉 > 交叉後確立做多/空方向
+        if trade_if_cross_ma(last_ma7_and_ma25_rel, row, trade_detail, last_td, trade_level_list,
+                             ma_dca_backtest_req.leverage_ratio):
+            continue
+
         # 確認有沒有爆倉
         if last_td and ((last_td.units > 0 and Decimal(row.low) < last_td.force_close_offset_price) or (
                 last_td.units < 0 and Decimal(row.high) > last_td.force_close_offset_price)):
@@ -189,295 +370,13 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
                                                trade_detail)
             continue
 
-        # 1. MA7 / MA25 超過20期沒有交叉 > 交叉後確立做多/空方向
-        if abs(last_ma7_and_ma25_rel) >= 20:
-            if last_ma7_and_ma25_rel > 0:
-                # ma7在ma25上面持續超過20期
-                if row.ma7 < row.ma25:
-                    # ma7如果跌破ma25的時候賣
-                    # # 如果之前做空，現在也做空，價差至少要>1000
-                    # if last_td and last_td.trade_record.type == TradeType.SELL and abs(
-                    #         last_td.trade_record.price - Decimal(row.ma7)) < 1000:
-                    #     continue
-
-                    # 如果之前是做多，現在要改做空，所以sell amt要包含之前做多的一起平掉
-                    if len(trade_detail.txn_detail_list) > 0:
-                        handle_unit = last_td.units
-                    else:
-                        handle_unit = Decimal(0)
-
-                    if handle_unit > 0:
-                        # 之前是做多，改放空的時候要reset trade_amt_list後取得第一階trade amt
-                        first_available_trade_amt = reset_trade_level_list_and_get_first(trade_level_list)
-                    else:
-                        first_available_trade_amt = Decimal(get_first_available_trade_amt(trade_level_list))
-
-                    trade_amt = first_available_trade_amt
-                    acct_handle_unit = handle_unit if handle_unit > 0 else Decimal(0)
-                    trade_type = TradeType.SELL
-
-                    unit = trade_svc.calc_buyable_units(trade_amt, Decimal(row.open)) + acct_handle_unit
-                    now_trade_record = trade_svc.create_trade_record(row.start_time, trade_type, Decimal(row.open),
-                                                                     unit=unit, handle_fee_type=HandleFeeType.TAKER,
-                                                                     reason=TradeReason(TradeReasonType.ACTIVE,
-                                                                                        "符合條件"))
-
-                    # 6. 連續2次符合條件且方向相同，直接平倉
-                    trade_if_not_trade_twice(row,
-                                             invest_amt,
-                                             guarantee_amt,
-                                             ma_dca_backtest_req.leverage_ratio,
-                                             now_trade_record,
-                                             trade_detail, trade_level_list)
-                    # trade_svc.build_txn_detail_list_df(row,
-                    #                                    invest_amt,
-                    #                                    guarantee_amt,
-                    #                                    ma_dca_backtest_req.leverage_ratio,
-                    #                                    now_trade_record,
-                    #                                    trade_detail)
-                    continue
-
-            elif last_ma7_and_ma25_rel < 0:
-                if row.ma7 > row.ma25:
-                    # ma7如果突破ma25的時候買
-                    # # 如果之前做多，現在也做多，價差至少要>1000
-                    # if last_td and last_td.trade_record.type == TradeType.BUY and abs(
-                    #         last_td.trade_record.price - Decimal(row.ma7)) < 1000:
-                    #     continue
-
-                    # 如果之前是做空，現在要改做多，所以buy amt要包含之前做多的一起平掉
-                    if len(trade_detail.txn_detail_list) > 0:
-                        handle_unit = trade_detail.txn_detail_list[len(trade_detail.txn_detail_list) - 1].units
-                    else:
-                        handle_unit = Decimal(0)
-
-                    if handle_unit < 0:
-                        # 之前是做多，改放空的時候要reset trade_amt_list後取得第一階trade amt
-                        first_available_trade_amt = reset_trade_level_list_and_get_first(trade_level_list)
-                    else:
-                        first_available_trade_amt = Decimal(get_first_available_trade_amt(trade_level_list))
-
-                    trade_amt = first_available_trade_amt
-                    acct_handle_unit = handle_unit if handle_unit < 0 else Decimal(0)
-                    trade_type = TradeType.BUY
-
-                    unit = trade_svc.calc_buyable_units(trade_amt, Decimal(row.open)) - acct_handle_unit
-                    now_trade_record = trade_svc.create_trade_record(row.start_time, trade_type, Decimal(row.open),
-                                                                     unit=unit, handle_fee_type=HandleFeeType.TAKER,
-                                                                     reason=TradeReason(TradeReasonType.ACTIVE,
-                                                                                        "符合條件"))
-
-                    # 6. 連續2次符合條件且方向相同，直接平倉
-                    trade_if_not_trade_twice(row,
-                                             invest_amt,
-                                             guarantee_amt,
-                                             ma_dca_backtest_req.leverage_ratio,
-                                             now_trade_record,
-                                             trade_detail, trade_level_list)
-                    # trade_svc.build_txn_detail_list_df(row,
-                    #                                    invest_amt,
-                    #                                    guarantee_amt,
-                    #                                    ma_dca_backtest_req.leverage_ratio,
-                    #                                    now_trade_record,
-                    #                                    trade_detail)
-                    continue
-        # row.start_time == type_util.str_to_datetime("2025-08-02T13:15:00Z")
-
-        # # 2. 等近20期MA25變化<200 > 進場
-        # # 達成條件直接用開盤價進場
-        # if now_trade_record:
-        #     # 近5個小時MA25不能買?跌:漲超過200點
-        #     if (now_trade_record.type == TradeType.BUY
-        #             and row.ma25 - df.iloc[i - 20].ma25 > -200
-        #             and row.close - df.iloc[i - 20].close > -200):
-        #         trade_svc.build_txn_detail_list_df(row,
-        #                                            invest_amt,
-        #                                            guarantee_amt,
-        #                                            ma_dca_backtest_req.leverage_ratio,
-        #                                            trade_svc.create_trade_record(row.start_time, trade_type,
-        #                                                                          Decimal(row.open),
-        #                                                                          unit=unit,
-        #                                                                          handle_fee_type=HandleFeeType.TAKER,
-        #                                                                          reason="符合條件"),
-        #                                            trade_detail)
-        #         now_trade_record = None
-        #     elif (now_trade_record.type == TradeType.SELL
-        #           and row.ma25 - df.iloc[i - 20].ma25 < 200
-        #           and row.close - df.iloc[i - 20].close < 200):
-        #         trade_svc.build_txn_detail_list_df(row,
-        #                                            invest_amt,
-        #                                            guarantee_amt,
-        #                                            ma_dca_backtest_req.leverage_ratio,
-        #                                            trade_svc.create_trade_record(row.start_time, trade_type,
-        #                                                                          Decimal(row.open),
-        #                                                                          unit=unit,
-        #                                                                          handle_fee_type=HandleFeeType.TAKER,
-        #                                                                          reason="符合條件"),
-        #                                            trade_detail)
-        #         now_trade_record = None
-
-        # # 7. 15分鐘內異動超過400點，跟著做
-        # change = Decimal(row.close) - Decimal(df.iloc[i - 1].close)
-        # if last_td and abs(last_td.units) > 0 and abs(change) > 500:
-        #     unit = 0
-        #     if change > 0 and Decimal(row.close) > max(Decimal(row.ma7), Decimal(row.ma25)):
-        #         if last_td.units < 0:
-        #             first_available_trade_amt = reset_trade_level_list_and_get_first(trade_level_list)
-        #             unit = last_td.units * -1
-        #         # else:
-        #         #     unit = trade_svc.calc_buyable_units(get_first_available_trade_amt(trade_level_list),
-        #         #                                         Decimal(row.close))
-        #     elif change < 0 and Decimal(row.close) < min(Decimal(row.ma7), Decimal(row.ma25)):
-        #         if last_td.units > 0:
-        #             first_available_trade_amt = reset_trade_level_list_and_get_first(trade_level_list)
-        #             unit = last_td.units
-        #         # else:
-        #         #     unit = trade_svc.calc_buyable_units(get_first_available_trade_amt(trade_level_list),
-        #         #                                         Decimal(row.close))
-        #
-        #     if unit > 0:
-        #         trade_record = trade_svc.create_trade_record(row.start_time,
-        #                                                      TradeType.BUY if change > 0 else TradeType.SELL, row.close,
-        #                                                      unit=unit, reason="停損")
-        #         trade_svc.build_txn_detail_list_df(row,
-        #                                            invest_amt,
-        #                                            guarantee_amt,
-        #                                            ma_dca_backtest_req.leverage_ratio,
-        #                                            trade_record,
-        #                                            trade_detail)
-        #         continue
-
         # 3. 獲利時，MA7/MA25連續3期逐漸變小且<100點 => 停利
-        if last_td:
-            unrealize_profit = trade_svc.calc_profit(row.close, last_td.handle_amt, last_td.handling_fee, last_td.units)
-            if unrealize_profit and unrealize_profit > 0:
-                is_need_close = False
-                # if abs(df.iloc[i - 2].ma7 - df.iloc[i - 2].ma25) > abs(df.iloc[i - 1].ma7 - df.iloc[i - 1].ma25) > abs(
-                #         df.iloc[i].ma7 - df.iloc[i].ma25) < 100:
-                #     is_need_close = True
-                #
-                # if is_need_close:
-                #     trade_svc.build_txn_detail_list_df(row,
-                #                                        invest_amt,
-                #                                        guarantee_amt,
-                #                                        ma_dca_backtest_req.leverage_ratio,
-                #                                        trade_svc.create_close_trade_record(row.start_time, row.close,
-                #                                                                            last_td, reason="停利"),
-                #                                        trade_detail)
-                #     reset_available_trade_amt(trade_level_list)
-            elif unrealize_profit and unrealize_profit < 0:
-                # 5. 虧損超過1000點 => 停損
-                if last_td.units > 0 and (last_td.handle_amt / last_td.units - Decimal(row.low)) > 1000:
-                    trade_svc.build_txn_detail_list_df(row,
-                                                       invest_amt,
-                                                       guarantee_amt,
-                                                       ma_dca_backtest_req.leverage_ratio,
-                                                       trade_svc.create_close_trade_record(row.start_time, round(
-                                                           last_td.handle_amt / last_td.units, 2) - 1000, last_td,
-                                                                                           reason=TradeReason(
-                                                                                               TradeReasonType.PASSIVE,
-                                                                                               "停損")),
-                                                       trade_detail)
-                    reset_available_trade_amt(trade_level_list)
-                    continue
-                if last_td.units < 0 and (Decimal(row.high) + last_td.handle_amt / last_td.units) > 1000:
-                    trade_svc.build_txn_detail_list_df(row,
-                                                       invest_amt,
-                                                       guarantee_amt,
-                                                       ma_dca_backtest_req.leverage_ratio,
-                                                       trade_svc.create_close_trade_record(row.start_time, round(
-                                                           last_td.handle_amt / last_td.units * -1, 2) + 1000, last_td,
-                                                                                           reason=TradeReason(
-                                                                                               TradeReasonType.PASSIVE,
-                                                                                               "停損")),
-                                                       trade_detail)
-                    reset_available_trade_amt(trade_level_list)
-                    continue
+        if stop_loss(last_td, row, ma_dca_backtest_req.leverage_ratio, trade_detail, trade_level_list):
+            continue
 
         # 如果是假突破或假跌破(5K內又跌/漲回去)，把買/賣的賣/買回來
-        if len(trade_detail.txn_detail_list) > 1:
-            non_stop_loss_td_list = [td for td in trade_detail.txn_detail_list if
-                                     td.trade_record.reason.trade_reason_type != TradeReasonType.PASSIVE]
-            last_1_td = non_stop_loss_td_list[len(non_stop_loss_td_list) - 1]
-            last_2_td = non_stop_loss_td_list[len(non_stop_loss_td_list) - 2]
-
-            # last_1_td = trade_detail.txn_detail_list[len(trade_detail.txn_detail_list) - 1]
-            # last_2_td = trade_detail.txn_detail_list[len(trade_detail.txn_detail_list) - 2]
-            # 近2個交易是做反向交易
-            # 賣>買>馬上跌破 > 賣
-            # 買>賣>馬上突破 > 買
-            if last_1_td.trade_record.type != last_2_td.trade_record.type \
-                    and ((last_1_td.trade_record.type == TradeType.BUY and row.ma7 < row.ma25 and (
-                    date_idx_map[row.start_time] - date_idx_map[last_1_td.trade_record.date]) < 10) \
-                         or (last_1_td.trade_record.type == TradeType.SELL and row.ma7 > row.ma25 and (
-                            date_idx_map[row.start_time] - date_idx_map[last_1_td.trade_record.date]) < 10)):
-                # set trade amt
-                set_trade_level_by_amt(last_2_td.handle_amt, trade_level_list)
-                # build trade record
-                trade_type = TradeType.BUY if last_1_td.trade_record.type == TradeType.SELL else TradeType.SELL
-                touch_ma_trade_record = trade_svc.create_trade_record(row.start_time, trade_type,
-                                                                      Decimal(row.close),
-                                                                      unit=abs(last_2_td.units) + abs(last_1_td.units),
-                                                                      handle_fee_type=HandleFeeType.TAKER,
-                                                                      reason=TradeReason(
-                                                                          TradeReasonType.ACTIVE,
-                                                                          "假突跌破，認錯回補"))
-                trade_svc.build_txn_detail_list_df(row,
-                                                   invest_amt,
-                                                   guarantee_amt,
-                                                   ma_dca_backtest_req.leverage_ratio,
-                                                   touch_ma_trade_record,
-                                                   trade_detail)
-                continue
-
-        # # 達成條件等MA7才進場
-        # if trade_amt and trade_amt > 0:
-        #     touch_ma_trade_record = None
-        #     if trade_type == TradeType.BUY:
-        #         # 做多
-        #         if row.open <= row.ma7:
-        #             # 開盤價已經<=MA7 => 直接買進
-        #             unit = trade_svc.calc_buyable_units(trade_amt, Decimal(row.open)) - acct_handle_unit
-        #             touch_ma_trade_record = trade_svc.create_trade_record(row.start_time, TradeType.BUY,
-        #                                                                   Decimal(row.open),
-        #                                                                   unit=unit,
-        #                                                                   handle_fee_type=HandleFeeType.TAKER)
-        #         else:
-        #             # 開盤價 > MA7 => 等價格跌到MA7再買進
-        #             last_6_close_avg = df.loc[i - 1].ma6
-        #             if row.low < last_6_close_avg < row.high:
-        #                 unit = trade_svc.calc_buyable_units(trade_amt, Decimal(last_6_close_avg)) - acct_handle_unit
-        #                 touch_ma_trade_record = trade_svc.create_trade_record(row.start_time, TradeType.BUY,
-        #                                                                       Decimal(last_6_close_avg),
-        #                                                                       unit=unit,
-        #                                                                       handle_fee_type=HandleFeeType.MAKER)
-        #     else:
-        #         # 做空
-        #         if row.open >= row.ma7:
-        #             # 開盤價已經>=MA7 => 直接賣出
-        #             unit = trade_svc.calc_buyable_units(trade_amt, Decimal(row.open)) + acct_handle_unit
-        #             touch_ma_trade_record = trade_svc.create_trade_record(row.start_time, TradeType.SELL,
-        #                                                                   Decimal(row.open),
-        #                                                                   unit=unit,
-        #                                                                   handle_fee_type=HandleFeeType.TAKER)
-        #         else:
-        #             # 開盤價 < MA7 => 等價格漲到MA7再賣出
-        #             last_6_close_avg = df.loc[i - 1].ma6
-        #             if row.low < last_6_close_avg < row.high:
-        #                 unit = trade_svc.calc_buyable_units(trade_amt, Decimal(last_6_close_avg)) + acct_handle_unit
-        #                 touch_ma_trade_record = trade_svc.create_trade_record(row.start_time, TradeType.SELL,
-        #                                                                       Decimal(last_6_close_avg),
-        #                                                                       unit=unit,
-        #                                                                       handle_fee_type=HandleFeeType.MAKER)
-        #     if touch_ma_trade_record:
-        #         trade_svc.build_txn_detail_list_df(row,
-        #                                            invest_amt,
-        #                                            guarantee_amt,
-        #                                            ma_dca_backtest_req.leverage_ratio,
-        #                                            touch_ma_trade_record,
-        #                                            trade_detail)
-        #         trade_amt = None
-        #         trade_unit = None
+        if fake_break(trade_detail, row, date_idx_map, trade_level_list, ma_dca_backtest_req.leverage_ratio):
+            continue
 
     for txn_detail in trade_detail.txn_detail_list:
         df.loc[df['start_time'] == txn_detail.date, 'txn_detail'] = txn_detail
