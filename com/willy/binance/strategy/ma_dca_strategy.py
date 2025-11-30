@@ -483,8 +483,8 @@ if __name__ == '__main__':
     invest_amt = Decimal(5000)
     guarantee_amt = Decimal(5000)
 
-    req = MaDcaBacktestReq("simple", BinanceProduct.BTCUSDT, type_util.str_to_datetime("2025-03-01T00:00:00Z"),
-                           type_util.str_to_datetime("2025-10-23T00:00:00Z"), invest_amt, guarantee_amt,
+    req = MaDcaBacktestReq("simple", BinanceProduct.BTCUSDT, type_util.str_to_datetime("2025-11-01T00:00:00Z"),
+                           type_util.str_to_datetime("2025-11-30T17:00:00Z"), invest_amt, guarantee_amt,
                            dca_levels=Decimal(5),
                            level_amt_change=Decimal(1), leverage_ratio=Decimal(20))
     backtest_ma_dca(req)
