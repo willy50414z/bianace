@@ -3,6 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from com.willy.binance.enums.handle_fee_type import HandleFeeType
+from com.willy.binance.enums.trade_reason import TradeReason
 from com.willy.binance.enums.trade_type import TradeType
 
 
@@ -13,4 +14,4 @@ class TradeRecord:
     price: Decimal  # 交易價格
     unit: Decimal  # 交易單位
     handle_fee_type: HandleFeeType  # 手續費類別
-    reason: str
+    reason: TradeReason

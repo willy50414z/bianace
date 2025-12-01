@@ -6,9 +6,10 @@ from pyecharts import options as opts
 from pyecharts.charts import Line
 
 from com.willy.binance.enums.trade_type import TradeType
+from com.willy.binance.service import trade_svc
 
 
-def export_trade_point_chart(chart_name, df):
+def export_trade_point_chart(chart_name, df, ma_dca_backtest_req):
     # df = pd.read_csv('E:/code/binance/data/BTCUSDT_15MIN.csv')
 
     # 提取数据中的日期和收盘价
@@ -25,7 +26,7 @@ def export_trade_point_chart(chart_name, df):
     total_profit_list = []
     for row in df.itertuples(index=False):
         if not pd.isna(row.txn_detail):
-            if row.txn_detail.trade_record.reason == "停損":
+            if row.txn_detail.trade_record.reason.desc == "停損":
                 stop_loss_point_list.append((row.start_time.strftime('%Y-%m-%d %H:%M:%S'), row.close, "STOP_LOSS"))
             else:
                 if row.txn_detail.trade_record.type == TradeType.BUY:
@@ -106,58 +107,144 @@ def export_trade_point_chart(chart_name, df):
     df2['price'] = txn_detail_df['txn_detail'].apply(lambda d: round(d.trade_record.price, 2))
     df2['profit'] = txn_detail_df['txn_detail'].apply(lambda d: d.profit)
     df2['total_profit'] = txn_detail_df['txn_detail'].apply(lambda d: d.total_profit)
-    df2['reason'] = txn_detail_df['txn_detail'].apply(lambda d: d.trade_record.reason)
+    df2['reason'] = txn_detail_df['txn_detail'].apply(lambda d: d.trade_record.reason.desc)
     table_html = df2.to_html(index=False, border=1)
+
+    strategy_summary_df = trade_svc.analyze_trading_strategy(df2, 10000)
+    strategy_summary_html = strategy_summary_df.to_html(index=False, border=1)
+    # strategy_summary_html = ""
 
     # Combine
     final_html = """
     <!DOCTYPE html>
-    <meta charset="utf-8">
-<html>
+<html lang="zh-Hant">
 <head>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.0/echarts.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>交易策略回測結果</title>
     <style>
-        /* 让 chart 和 table 在同一行 */
-        .layout {
-    display: flex;
-            align-items: flex-start;
-            justify-content: center;
-            gap: 20px; /* 两边的间距，可以按需调整 */
-        }
+    /* 設置根容器使用 Grid 佈局 */
+    .grid-container {
+        display: grid;
+        /* *** 關鍵變動：增加一行 auto *** */
+        /* 第 1 行 (Request Info): auto (由內容決定) */
+        /* 第 2 行 (Summary): auto (由內容決定) */
+        /* 第 3 行 (Chart/Table): 1fr (佔據所有剩餘空間) */
+        grid-template-rows: auto auto 1fr; 
+        
+        /* 定義兩列: 讓 chart 和 table 各佔據一半寬度 */
+        grid-template-columns: 1fr 1fr; 
+        
+        gap: 10px; /* 元素之間的間距 */
+        padding: 10px;
+        /* 設置容器高度為整個視口，讓 1fr 有確定的高度可以依據 */
+        height: 100vh; 
+        box-sizing: border-box; /* 確保 padding 不會增加總高度 */
+    }
 
-        /* chart 占据的宽度（可按需求调整） */
-        .chart {
-    width: 60%;   /* 例如占屏幕宽度的 60% */
-            min-width: 300px;
-        }
+    /* 新增：用於放置 Request 資訊的容器 (第 1 行) */
+    .request-info {
+        grid-row: 1 / 2;         /* 放在第 1 行 */
+        grid-column: 1 / 3;     /* 跨越兩欄 */
+        padding: 10px;
+        border: 1px solid #ddd;
+        background-color: #f0fff0; /* 淺綠色背景以區分 */
+    }
 
-        /* 可滚动的表格容器 */
-        .table-container {
-    width: 40%;   /* 与 chart 相对 */
-            min-width: 300px;
-            max-height: 500px; /* 设定一个固定高度，超出就滚动 */
-            overflow: auto;
-            border: 1px solid #ddd;
-        }
+    /* 策略總結放在第 2 行 (原來的第 1 行) */
+    .strategy-summary {
+        grid-row: 2 / 3;        /* 調整到第 2 行 */
+        grid-column: 1 / 3; 
+        padding: 15px;
+        border: 1px solid #ddd;
+        background-color: #f9f9f9;
+    }
 
-        /* 表格样式（保持原有样式） */
-        table {margin: 0; border-collapse: collapse; width: 100%; }
-        th, td {padding: 10px; text-align: left; border-bottom: 1px solid #eee; }
-        /* 你原本的样式 */
-        /* table {margin: 20px auto; border-collapse: collapse; }
-           th, td {padding: 10px; text-align: left; } */
-    </style>
+    /* 圖表和表格容器 (第 3 行，原來的第 2 行) */
+    .chart, .table {
+        grid-row: 3 / 4;        /* 調整到第 3 行 */
+        display: flex; /* 啟用 Flexbox */
+        flex-direction: column; 
+        min-height: 0; 
+    }
+
+    .chart {
+        grid-column: 1 / 2; 
+        overflow: auto; 
+    }
+
+    /* 交易紀錄表放在第 3 行第 2 欄 */
+    .table {
+        grid-column: 2 / 3; 
+        overflow: hidden; 
+    }
+
+    /* 針對內容區域創建一個專用的 DIV，確保它佔滿剩餘高度並可以滾動 */
+    .table-content {
+        flex-grow: 1; /* 佔滿所有剩餘的垂直空間 */
+        overflow-y: auto; /* 內容溢出時在此區域滾動 */
+    }
+    
+    /* 確保 body 和 html 不會有額外的邊距 */
+    body, html {
+        margin: 0;
+        padding: 0;
+        font-family: Arial, sans-serif;
+        height: 100%; 
+    }
+
+    /* 針對 request 資訊的表格增加樣式 */
+    .request-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .request-table th, .request-table td {
+        border: 1px solid #ccc;
+        padding: 8px;
+        text-align: left;
+    }
+    .request-table th {
+        background-color: #e0e0e0;
+    }
+</style>
 </head>
 <body>
-    <div class="layout">
-        <div class="chart" id="chart-container">
+    <div class="grid-container">
+
+        <div class="request-info">
+            <h2>📝 請求資訊</h2>
+            <table class="request-table">
+                <thead>
+                    <tr>
+                        <th>欄位名稱</th>
+                        <th>值</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>request</td>
+                        <td>""" + str(ma_dca_backtest_req) + """"</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="strategy-summary">
+            <h2>📈 策略分析總結</h2>
+            """ + strategy_summary_html + """
+        </div>
+
+        <div class="chart">
+            <h2>📊 淨值曲線圖</h2>
             """ + chart_html + """
         </div>
 
-        <!-- 滚动表格区域 -->
-        <div class="table-container" aria-label="滚动表格">
-            """ + table_html + """
+        <div class="table">
+            <h2>📋 交易紀錄詳情</h2>
+            <div class="table-content">
+                """ + table_html + """
+            </div>
         </div>
+
     </div>
 </body>
 </html>

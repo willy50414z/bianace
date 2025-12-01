@@ -10,12 +10,12 @@ from pandas import DataFrame
 from com.willy.binance.config.config_util import config_util
 from com.willy.binance.dto.acct_dto import AcctDto, AcctBalance
 from com.willy.binance.dto.binance_kline import BinanceKline
+from com.willy.binance.dto.commission_order import CommissionOrder
+from com.willy.binance.dto.futures_account_info import FuturesAccountInfo
+from com.willy.binance.dto.position_info import PositionInfo
 from com.willy.binance.dto.time_series_dto import TimeSeriesDto
 from com.willy.binance.enums.binance_product import BinanceProduct
-from com.willy.binance.enums.commission_order import CommissionOrder
 from com.willy.binance.enums.currency import Currency
-from com.willy.binance.enums.futures_account_info import FuturesAccountInfo
-from com.willy.binance.enums.position_info import PositionInfo
 from com.willy.binance.enums.transfer_type import TransferType
 from com.willy.binance.util import type_util
 

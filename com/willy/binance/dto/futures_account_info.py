@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from typing import List
 
-from com.willy.binance.enums.acct_balance import AccountBalance
-from com.willy.binance.enums.position_info import PositionInfo
+from com.willy.binance.dto.acct_balance import AccountBalance
+from com.willy.binance.dto.position_info import PositionInfo
 
 
 @dataclass
