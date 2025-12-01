@@ -12,8 +12,8 @@ if __name__ == '__main__':
                                                      type_util.str_to_datetime("2025-11-12T00:00:00Z"))
     # # print("====BEFORE====")
     # # print(klines_df)
-    klines_df.to_csv('E:/code/binance/data/BTCUSDT_8H.csv', index=False)
+    klines_df.to_csv('E:/code/binance/data/BTCUSDT_8h.csv', index=False)
 
-    df_loaded = pd.read_csv('E:/code/binance/data/BTCUSDT_4H.csv')
+    df_loaded = pd.read_csv('/data/BTCUSDT_4h.csv')
     print("====AFTER====")
     print(df_loaded)

@@ -10,7 +10,7 @@ from com.willy.binance.service import trade_svc
 
 
 def export_trade_point_chart(chart_name, df, ma_dca_backtest_req):
-    # df = pd.read_csv('E:/code/binance/data/BTCUSDT_15MIN.csv')
+    # df = pd.read_csv('E:/code/binance/data/BTCUSDT_15m.csv')
 
     # 提取数据中的日期和收盘价
     date_list = df['start_time'].dt.strftime('%Y-%m-%d %H:%M:%S').tolist()

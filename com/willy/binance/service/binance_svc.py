@@ -1,6 +1,7 @@
 import datetime
 from datetime import timezone
 from decimal import Decimal
+from pathlib import Path
 from typing import List, Optional
 
 import pandas as pd
@@ -58,22 +59,27 @@ class BinanceSvc:
         return acct_dto
 
     def get_historical_klines_df(self, binance_product: BinanceProduct, kline_interval=Client.KLINE_INTERVAL_1DAY,
-                                 start_date: datetime = type_util.str_to_date("20250101"),
-                                 end_date: datetime = type_util.str_to_date("20250105")) -> DataFrame:
-        klines = self.client.get_historical_klines(binance_product.name, kline_interval,
-                                                   int(start_date.timestamp() * 1000),
-                                                   int(end_date.timestamp() * 1000))
-        selected_fields = [[row[i] for i in (0, 1, 2, 3, 4, 5, 6, 8)] for row in klines]
-        df = pd.DataFrame(selected_fields,
-                          columns=['start_time', 'open', 'high', 'low', 'close', 'vol', 'end_time', 'number_of_trade'])
-        df = df.apply(self.parse_datetime_row, axis=1)
-        df = df.astype(
-            {'open': float, 'high': float, 'low': float, 'close': float, 'vol': float, 'number_of_trade': float})
-        return df
-
-    def append_ma(self, kline_df: DataFrame, interval: int):
-        kline_df['ma' + str(interval)] = kline_df['close'].rolling(window=interval, min_periods=interval).mean().round(
-            2)
+                                 start_time: datetime = type_util.str_to_date("20250101"),
+                                 end_time: datetime = type_util.str_to_date("20250105")) -> DataFrame:
+        project_dir = str(Path.cwd().parent.parent.parent).replace("\\", "/")
+        df = pd.read_csv(f"{project_dir}/data/{binance_product.name}_{kline_interval}.csv",
+                         parse_dates=["start_time", "end_time"])
+        if df.iloc[0]['start_time'] <= start_time and df.iloc[-1]['start_time'] >= end_time:
+            # df = df.apply(parse_datetime_row, axis=1)
+            mask = (df["start_time"] >= start_time) & (df["start_time"] <= end_time)
+            return df.loc[mask]
+        else:
+            klines = self.client.get_historical_klines(binance_product.name, kline_interval,
+                                                       int(start_time.timestamp() * 1000),
+                                                       int(end_time.timestamp() * 1000))
+            selected_fields = [[row[i] for i in (0, 1, 2, 3, 4, 5, 6, 8)] for row in klines]
+            df = pd.DataFrame(selected_fields,
+                              columns=['start_time', 'open', 'high', 'low', 'close', 'vol', 'end_time',
+                                       'number_of_trade'])
+            df = df.apply(self.parse_datetime_row, axis=1)
+            df = df.astype(
+                {'open': float, 'high': float, 'low': float, 'close': float, 'vol': float, 'number_of_trade': float})
+            return df
 
     def get_close_ma(self, binance_product: BinanceProduct, kline_interval=Client.KLINE_INTERVAL_1DAY,
                      start_date: datetime = type_util.str_to_datetime("2025-11-10T00:00:00Z"),

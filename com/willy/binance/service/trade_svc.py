@@ -124,15 +124,17 @@ def create_close_trade_record(date: datetime, price: Decimal, txn_detail: TxnDet
     return create_trade_record(date, trade_type, price, amt, unit, handle_fee_type, reason=reason)
 
 
-def build_txn_detail_list_df(row, invest_amt: Decimal, guarantee_amt: Decimal,
-                             leverage_ratio: Decimal,
+def build_txn_detail_list_df(row, invest_amt, guarantee_amt,
+                             leverage_ratio,
                              trade_record: TradeRecord | None, trade_detail: TradeDetail):
     if trade_record is None:
         return
     return build_txn_detail_list(
         BinanceKline(row.start_time, Decimal(row.open), Decimal(row.high), Decimal(row.low), Decimal(row.close),
                      Decimal(row.vol), row.end_time,
-                     int(row.number_of_trade)), invest_amt, guarantee_amt, leverage_ratio, trade_record, trade_detail)
+                     int(row.number_of_trade)), Decimal(invest_amt), Decimal(guarantee_amt), Decimal(leverage_ratio),
+        trade_record,
+        trade_detail)
 
 
 def build_txn_detail_list(binanceKline: BinanceKline, invest_amt: Decimal, guarantee_amt: Decimal,

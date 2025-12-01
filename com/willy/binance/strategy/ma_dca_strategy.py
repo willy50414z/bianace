@@ -10,7 +10,7 @@ from com.willy.binance.enums.binance_product import BinanceProduct
 from com.willy.binance.enums.handle_fee_type import HandleFeeType
 from com.willy.binance.enums.trade_reason import TradeReasonType, TradeReason
 from com.willy.binance.enums.trade_type import TradeType
-from com.willy.binance.service import trade_svc, chart_service
+from com.willy.binance.service import trade_svc, chart_service, tech_idx_svc
 from com.willy.binance.service.binance_svc import BinanceSvc
 from com.willy.binance.util import type_util
 
@@ -311,7 +311,7 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
     # 撈出股價/MA7/ma25
     binance_svc = BinanceSvc()
 
-    df = pd.read_csv('E:/code/binance/data/BTCUSDT_15MIN.csv', parse_dates=["start_time", "end_time"])
+    df = pd.read_csv('/data/BTCUSDT_15m.csv', parse_dates=["start_time", "end_time"])
     if df.iloc[0]['start_time'] <= ma_dca_backtest_req.start_time and df.iloc[-1][
         'start_time'] >= ma_dca_backtest_req.end_time:
         # df = df.apply(parse_datetime_row, axis=1)
@@ -321,10 +321,10 @@ def backtest_ma_dca(ma_dca_backtest_req: MaDcaBacktestReq):
         df = binance_svc.get_historical_klines_df(BinanceProduct.BTCUSDT, Client.KLINE_INTERVAL_15MINUTE,
                                                   ma_dca_backtest_req.start_time, ma_dca_backtest_req.end_time)
 
-    binance_svc.append_ma(df, 7)
-    binance_svc.append_ma(df, 6)
-    binance_svc.append_ma(df, 25)
-    binance_svc.append_ma(df, 99)
+    tech_idx_svc.append_ma(df, 7)
+    tech_idx_svc.append_ma(df, 6)
+    tech_idx_svc.append_ma(df, 25)
+    tech_idx_svc.append_ma(df, 99)
 
     # MA過去20天是否都上漲/下跌
     df['ma25_diff'] = df['ma25'].diff()
