@@ -62,9 +62,12 @@ class BinanceSvc:
                                  start_time: datetime = type_util.str_to_date("20250101"),
                                  end_time: datetime = type_util.str_to_date("20250105")) -> DataFrame:
         project_dir = str(Path.cwd().parent.parent.parent).replace("\\", "/")
-        df = pd.read_csv(f"{project_dir}/data/{binance_product.name}_{kline_interval}.csv",
-                         parse_dates=["start_time", "end_time"])
-        if df.iloc[0]['start_time'] <= start_time and df.iloc[-1]['start_time'] >= end_time:
+
+        csv_path = f"{project_dir}/data/{binance_product.name}_{kline_interval}.csv"
+        df = None
+        if Path(csv_path).exists():
+            df = pd.read_csv(csv_path, parse_dates=["start_time", "end_time"])
+        if df is not None and df.iloc[0]['start_time'] <= start_time and df.iloc[-1]['start_time'] >= end_time:
             # df = df.apply(parse_datetime_row, axis=1)
             mask = (df["start_time"] >= start_time) & (df["start_time"] <= end_time)
             return df.loc[mask]
