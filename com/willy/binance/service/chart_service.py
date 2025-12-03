@@ -18,7 +18,6 @@ def export_trade_point_chart(chart_name, df, ma_dca_backtest_req):
     close_list = df['close'].values.tolist()
     ma7_list = df["ma7"].values.tolist()
     ma25_list = df["ma25"].values.tolist()
-    ma99_list = df["ma99"].values.tolist()
 
     buy_point_list = []
     sell_point_list = []
@@ -48,8 +47,6 @@ def export_trade_point_chart(chart_name, df, ma_dca_backtest_req):
                          y_axis=ma7_list, color='#F19C38', yaxis_index=0)
     line_chart.add_yaxis(series_name="ma25", is_symbol_show=False,
                          y_axis=ma25_list, color='#EA3DF7', yaxis_index=0)
-    line_chart.add_yaxis(series_name="ma99", is_symbol_show=False,
-                         y_axis=ma99_list, color='#7A297B', yaxis_index=0)
     line_chart.add_yaxis(series_name="total_profit", is_symbol_show=False,
                          y_axis=total_profit_list, color='#138535', yaxis_index=1)
     line_chart.extend_axis(yaxis=opts.AxisOpts(type_="value", position="right"))

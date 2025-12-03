@@ -1,4 +1,5 @@
 import datetime
+import functools
 from datetime import timezone
 from decimal import Decimal
 from pathlib import Path
@@ -19,6 +20,12 @@ from com.willy.binance.enums.binance_product import BinanceProduct
 from com.willy.binance.enums.currency import Currency
 from com.willy.binance.enums.transfer_type import TransferType
 from com.willy.binance.util import type_util
+
+
+def parse_datetime_row(self, row):
+    row['start_time'] = type_util.timestamp_to_datetime(row['start_time'] // 1000, tz=timezone.utc)
+    row['end_time'] = type_util.timestamp_to_datetime(row['end_time'] // 1000, tz=timezone.utc)
+    return row
 
 
 class BinanceSvc:
@@ -44,11 +51,6 @@ class BinanceSvc:
                              number_of_trade=kline[8]))
         return kline_list
 
-    def parse_datetime_row(self, row):
-        row['start_time'] = type_util.timestamp_to_datetime(row['start_time'] // 1000, tz=timezone.utc)
-        row['end_time'] = type_util.timestamp_to_datetime(row['end_time'] // 1000, tz=timezone.utc)
-        return row
-
     def acct(self):
         acct_dto = AcctDto()
         for balance in self.client.get_account()["balances"]:
@@ -61,16 +63,12 @@ class BinanceSvc:
     def get_historical_klines_df(self, binance_product: BinanceProduct, kline_interval=Client.KLINE_INTERVAL_1DAY,
                                  start_time: datetime = type_util.str_to_date("20250101"),
                                  end_time: datetime = type_util.str_to_date("20250105")) -> DataFrame:
-        project_dir = str(Path.cwd().parent.parent.parent).replace("\\", "/")
 
-        csv_path = f"{project_dir}/data/{binance_product.name}_{kline_interval}.csv"
-        df = None
-        if Path(csv_path).exists():
-            df = pd.read_csv(csv_path, parse_dates=["start_time", "end_time"])
+        df = self.get_price_from_cached_file(binance_product, kline_interval)
         if df is not None and df.iloc[0]['start_time'] <= start_time and df.iloc[-1]['start_time'] >= end_time:
             # df = df.apply(parse_datetime_row, axis=1)
             mask = (df["start_time"] >= start_time) & (df["start_time"] <= end_time)
-            return df.loc[mask]
+            return df.loc[mask].copy()
         else:
             klines = self.client.get_historical_klines(binance_product.name, kline_interval,
                                                        int(start_time.timestamp() * 1000),
@@ -79,10 +77,20 @@ class BinanceSvc:
             df = pd.DataFrame(selected_fields,
                               columns=['start_time', 'open', 'high', 'low', 'close', 'vol', 'end_time',
                                        'number_of_trade'])
-            df = df.apply(self.parse_datetime_row, axis=1)
+            df = df.apply(parse_datetime_row, axis=1)
             df = df.astype(
                 {'open': float, 'high': float, 'low': float, 'close': float, 'vol': float, 'number_of_trade': float})
-            return df
+        return df
+
+    @functools.lru_cache(maxsize=10)
+    def get_price_from_cached_file(self, binance_product: BinanceProduct, kline_interval):
+        project_dir = str(Path.cwd().parent.parent.parent).replace("\\", "/")
+
+        csv_path = f"{project_dir}/data/{binance_product.name}_{kline_interval}.csv"
+        df = None
+        if Path(csv_path).exists():
+            df = pd.read_csv(csv_path, parse_dates=["start_time", "end_time"])
+        return df
 
     def get_close_ma(self, binance_product: BinanceProduct, kline_interval=Client.KLINE_INTERVAL_1DAY,
                      start_date: datetime = type_util.str_to_datetime("2025-11-10T00:00:00Z"),

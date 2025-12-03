@@ -1,7 +1,9 @@
-from datetime import timedelta
+from datetime import timedelta, datetime
 from decimal import Decimal
 
+import numpy as np
 import pandas as pd
+from binance import Client
 
 from com.willy.binance.dto.trade_detail import TradeDetail
 from com.willy.binance.dto.trade_record import TradeRecord
@@ -71,18 +73,15 @@ def trade_if_not_trade_twice(row,
 
 
 class MovingAverageStrategy(TradingStrategy):
-    ma7_and_ma25_rel = 0
     invest_amt = 0
     guarantee_amt = 0
     trade_level_list = []
 
     def get_trade_record(self, row: pd.Series, trade_detail: TradeDetail) -> TradeRecord:
-        last_ma7_and_ma25_rel = self.ma7_and_ma25_rel
-        self.update_ma7_and_ma25_rel(row.ma7, row.ma25)
         last_td = self.trade_detail.txn_detail_list[len(self.trade_detail.txn_detail_list) - 1] if len(
             self.trade_detail.txn_detail_list) > 0 else None
 
-        trade_record = self.trade_if_cross_ma(last_td, last_ma7_and_ma25_rel, row)
+        trade_record = self.trade_if_cross_ma(last_td, row.last_ma7_and_ma25_rel, row)
         if trade_record:
             return trade_record
 
@@ -96,6 +95,20 @@ class MovingAverageStrategy(TradingStrategy):
         if trade_record:
             return trade_record
 
+    def get_trade_record_by_date(self, dt: datetime) -> TradeRecord:
+        data_fetch_start = self.start_time - self.lookback_days
+
+        # 2. 獲取並準備數據
+        df = self.binance_svc.get_historical_klines_df(self.product, Client.KLINE_INTERVAL_15MINUTE, data_fetch_start,
+                                                       dt)
+
+        self.prepare_data(self.initial_capital, df, self.other_args)
+
+        # 再篩選一次df，避免拿到多的資料
+        df = df[(df["start_time"] <= dt)]
+
+        return self.get_trade_record(df.iloc[-1], self.trade_detail)
+
     @property
     def invest_and_guarantee_ratio(self) -> float:
         return 0.5
@@ -104,16 +117,17 @@ class MovingAverageStrategy(TradingStrategy):
         tech_idx_svc.append_ma(df, 7)
         tech_idx_svc.append_ma(df, 6)
         tech_idx_svc.append_ma(df, 25)
-        tech_idx_svc.append_ma(df, 99)
 
         # MA過去20天是否都上漲/下跌
         df['ma25_diff'] = df['ma25'].diff()
 
+        # ma25 過去20天是否連續上漲
         diff_int = df['ma25_diff'] > 0
         diff_int = diff_int.astype(int)
         past20_growth = diff_int.rolling(window=20, min_periods=20).min()
         df['past20_ma25_growth'] = past20_growth.astype(bool)
 
+        # ma25 過去20天是否連續下跌
         diff_ma25_diff = df['ma25_diff'] < 0
         diff_int = diff_ma25_diff.astype(int)
         past20_ma25_fall = diff_int.rolling(window=20, min_periods=20).min()
@@ -129,26 +143,35 @@ class MovingAverageStrategy(TradingStrategy):
             self.trade_level_list.append(
                 TradeLevel(False, first_layer_invest_amt * pow(self.other_args["level_amt_change"], i)))
 
+        # ma7_and_ma25_rel
+        diff_sign = np.sign(df['ma7'] - df['ma25'])  # 1, 0, -1
+
+        ma_rel = []
+        current_len = 0
+        current_sign = 0
+        for s in diff_sign:
+            if s == 0:
+                # 無方向性，重置
+                current_len = 0
+                current_sign = 0
+                ma_rel.append(0)
+            elif np.isnan(s):
+                ma_rel.append(0)
+            else:
+                if s == current_sign:
+                    current_len += 1
+                else:
+                    current_len = 1
+                    current_sign = s
+                # 將日數轉成輸出值，前提是你要的輸出就是日數本身
+                ma_rel.append(current_len * int(np.sign(current_sign)))
+
+        df['ma7_and_ma25_rel'] = ma_rel
+        df['last_ma7_and_ma25_rel'] = df['ma7_and_ma25_rel'].shift(1)
+
     @property
     def lookback_days(self) -> timedelta:
-        return timedelta(minutes=15 * 99)
-
-    def update_ma7_and_ma25_rel(self, ma7, ma25):
-        if self.ma7_and_ma25_rel > 0:
-            if ma7 > ma25:
-                self.ma7_and_ma25_rel += 1
-            elif ma7 < ma25:
-                self.ma7_and_ma25_rel = -1
-        elif self.ma7_and_ma25_rel < 0:
-            if ma7 > ma25:
-                self.ma7_and_ma25_rel = 1
-            elif ma7 < ma25:
-                self.ma7_and_ma25_rel += -1
-        else:
-            if ma7 > ma25:
-                self.ma7_and_ma25_rel = 1
-            elif ma7 < ma25:
-                self.ma7_and_ma25_rel = -1
+        return timedelta(minutes=15 * 100)
 
     def trade_if_cross_ma(self, last_td, last_ma7_and_ma25_rel, row):
         # 1. MA7 / MA25 超過20期沒有交叉 > 交叉後確立做多/空方向

@@ -5,6 +5,7 @@ from decimal import Decimal
 import pandas as pd
 from binance import Client
 
+from com.willy.binance.dao import binance_kline_dao
 from com.willy.binance.dto.trade_detail import TradeDetail
 from com.willy.binance.dto.trade_record import TradeRecord
 from com.willy.binance.enums.binance_product import BinanceProduct
@@ -50,6 +51,13 @@ class TradingStrategy(ABC):
         pass
 
     @abstractmethod
+    def get_trade_record_by_date(self, dt: datetime) -> TradeRecord:
+        """
+
+        """
+        pass
+
+    @abstractmethod
     def get_trade_record(self, row: pd.Series, trade_detail: TradeDetail) -> TradeRecord:
         """
         [強制實現] 根據當前數據和持倉，決定當日的交易量和原因。
@@ -71,8 +79,7 @@ class TradingStrategy(ABC):
         data_fetch_start = self.start_time - self.lookback_days
 
         # 2. 獲取並準備數據
-        df = self.binance_svc.get_historical_klines_df(self.product, Client.KLINE_INTERVAL_15MINUTE,
-                                                       data_fetch_start, self.end_time)
+        df = binance_kline_dao.get_kline(self.product, Client.KLINE_INTERVAL_15MINUTE, data_fetch_start, self.end_time)
         df.set_index('start_time')
         self.prepare_data(self.initial_capital, df, self.other_args)
 
@@ -84,12 +91,15 @@ class TradingStrategy(ABC):
         print(f"-> 策略將在 {len(backtest_df)} 個交易日中運行...")
         row_idx = 0
         for index, row in backtest_df.iterrows():
-            date = index
-            price = row['close']  # 假設交易價格為收盤價
             self.date_idx_map[row.start_time] = row_idx
             row_idx += 1
+
+            if row_idx % 1000 == 0:
+                print(f"finish {row_idx} / {backtest_df.shape[0]}")
             # --- I. 獲取策略決策 ---
-            trade_record = self.get_trade_record(row, self.trade_detail)
+            # trade_record = self.get_trade_record(row, self.trade_detail)
+            trade_record = self.get_trade_record_by_date(row.start_time)
+
             trade_svc.build_txn_detail_list_df(row, self.invest_amt, self.guarantee_amt, self.leverage, trade_record,
                                                self.trade_detail)
 
