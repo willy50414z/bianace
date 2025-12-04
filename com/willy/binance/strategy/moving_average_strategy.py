@@ -96,11 +96,10 @@ class MovingAverageStrategy(TradingStrategy):
             return trade_record
 
     def get_trade_record_by_date(self, dt: datetime) -> TradeRecord:
-        data_fetch_start = self.start_time - self.lookback_days
+        data_fetch_start = dt - self.lookback_tickets
 
         # 2. 獲取並準備數據
-        df = self.binance_svc.get_historical_klines_df(self.product, Client.KLINE_INTERVAL_15MINUTE, data_fetch_start,
-                                                       dt)
+        df = self.binance_svc.get_klines(self.product, Client.KLINE_INTERVAL_15MINUTE, data_fetch_start, dt)
 
         self.prepare_data(self.initial_capital, df, self.other_args)
 
@@ -170,7 +169,7 @@ class MovingAverageStrategy(TradingStrategy):
         df['last_ma7_and_ma25_rel'] = df['ma7_and_ma25_rel'].shift(1)
 
     @property
-    def lookback_days(self) -> timedelta:
+    def lookback_tickets(self) -> timedelta:
         return timedelta(minutes=15 * 100)
 
     def trade_if_cross_ma(self, last_td, last_ma7_and_ma25_rel, row):

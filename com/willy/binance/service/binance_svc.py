@@ -22,7 +22,7 @@ from com.willy.binance.enums.transfer_type import TransferType
 from com.willy.binance.util import type_util
 
 
-def parse_datetime_row(self, row):
+def parse_datetime_row(row):
     row['start_time'] = type_util.timestamp_to_datetime(row['start_time'] // 1000, tz=timezone.utc)
     row['end_time'] = type_util.timestamp_to_datetime(row['end_time'] // 1000, tz=timezone.utc)
     return row
@@ -185,23 +185,39 @@ class BinanceSvc:
         except Exception as e:
             raise Exception(f"取得委託單失敗: {e}")
 
+    @functools.lru_cache(maxsize=10)
+    def get_klines(self, binance_product: BinanceProduct, kline_interval=Client.KLINE_INTERVAL_1DAY,
+                   start_time: datetime = type_util.str_to_date("20250101"),
+                   end_time: datetime = type_util.str_to_date("20250105")):
+        klines = self.client.get_klines(symbol=binance_product.name, interval=kline_interval,
+                                        startTime=int(start_time.timestamp() * 1000),
+                                        endTime=int(end_time.timestamp() * 1000))
+        selected_fields = [[row[i] for i in (0, 1, 2, 3, 4, 5, 6, 8)] for row in klines]
+        df = pd.DataFrame(selected_fields,
+                          columns=['start_time', 'open', 'high', 'low', 'close', 'vol', 'end_time',
+                                   'number_of_trade'])
+        df = df.apply(parse_datetime_row, axis=1)
+        df = df.astype(
+            {'open': float, 'high': float, 'low': float, 'close': float, 'vol': float, 'number_of_trade': float})
+        return df
+
 
 if __name__ == '__main__':
     service = BinanceSvc()
-    service.universal_transfer(TransferType.MAIN_UMFUTURE, Currency.USDC, 0.2)
-    account_info = service.get_account_info()
-    print(account_info)
-
-    # 取得所有持倉（使用獨立方法）
-    positions = service.get_positions()
-    print(positions)
-
-    # 取得特定交易對的持倉
-    # btc_positions = service.get_positions(symbol='BTCUSDT')
-
-    # 取得所有委託單
-    orders = service.get_open_orders()
-    print(orders)
-    # print(binanceSvc.get_close_ma(BinanceProduct.BTCUSDT, Client.KLINE_INTERVAL_15MINUTE,
-    #                               type_util.str_to_datetime("2025-11-10T00:00:00Z"),
-    #                               type_util.str_to_datetime("2025-11-10T05:00:00Z"), 7))
+    print(service.get_klines(BinanceProduct.BTCUSDT, Client.KLINE_INTERVAL_15MINUTE,
+                             type_util.str_to_date_min("202512040500"), datetime.datetime.now()))
+    # # U本位/幣本位 轉帳
+    # service.universal_transfer(TransferType.MAIN_UMFUTURE, Currency.USDC, 0.2)
+    # account_info = service.get_account_info()
+    # print(account_info)
+    #
+    # # 取得所有持倉（使用獨立方法）
+    # positions = service.get_positions()
+    # print(positions)
+    #
+    # # 取得特定交易對的持倉
+    # # btc_positions = service.get_positions(symbol='BTCUSDT')
+    #
+    # # 取得所有委託單
+    # orders = service.get_open_orders()
+    # print(orders)

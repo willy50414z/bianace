@@ -1,4 +1,6 @@
 # 引入新版 V3 的類別
+import logging
+
 from linebot.v3.messaging import (
     Configuration,
     ApiClient,
@@ -16,9 +18,6 @@ channel_access_token = config.get("token")
 
 # --- 設定 V3 API 客戶端 ---
 configuration = Configuration(access_token=channel_access_token)
-api_client = ApiClient(configuration)
-# 創建 MessagingApi 實例
-line_bot_api = MessagingApi(api_client)
 
 
 # 發送訊息函數 (使用新版語法)
@@ -32,18 +31,18 @@ def send_message(user_id, message_text):
         messages=[message]  # messages 必須是一個列表
     )
 
+    api_client = ApiClient(configuration)
     try:
+        line_bot_api = MessagingApi(api_client)
         # 使用新的 push_message 方法，傳入 request 物件
         line_bot_api.push_message(push_request)
-        print(f"Message sent to {user_id}")
     except Exception as e:
-        print(f"Failed to send message: {e}")
+        logging.error(f"Failed to send message", e)
+    finally:
+        api_client.close()
 
 
 if __name__ == '__main__':
     # 使用方式
-    user_id = config.get("userid_willy")
-    send_message(user_id, "Hello from Python!")
-
-    # 記得在使用完畢後關閉 api_client，或者使用 with statement
-    api_client.close()
+    user = config.get("userid_willy")
+    send_message(user, "Hello from Python!")

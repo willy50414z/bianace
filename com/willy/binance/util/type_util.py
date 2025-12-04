@@ -23,11 +23,11 @@ def datetime_to_str(dt: datetime, format="%Y%m%d"):
 
 
 def str_to_date(str):
-    return datetime.strptime(str, "%Y%m%d").astimezone(ZoneInfo("UTC"))
+    return datetime.strptime(str, "%Y%m%d").replace(tzinfo=ZoneInfo("UTC"))
 
 
 def str_to_date_min(str):
-    return datetime.strptime(str, "%Y%m%d%H%M").astimezone(ZoneInfo("UTC"))
+    return datetime.strptime(str, "%Y%m%d%H%M").replace(tzinfo=ZoneInfo("UTC"))
 
 
 def str_to_datetime(s: str = "2025-10-01T00:00:00Z"):

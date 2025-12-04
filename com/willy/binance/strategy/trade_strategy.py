@@ -5,7 +5,6 @@ from decimal import Decimal
 import pandas as pd
 from binance import Client
 
-from com.willy.binance.dao import binance_kline_dao
 from com.willy.binance.dto.trade_detail import TradeDetail
 from com.willy.binance.dto.trade_record import TradeRecord
 from com.willy.binance.enums.binance_product import BinanceProduct
@@ -35,7 +34,7 @@ class TradingStrategy(ABC):
 
     @property
     @abstractmethod
-    def lookback_days(self) -> timedelta:
+    def lookback_tickets(self) -> timedelta:
         pass
 
     @property
@@ -76,10 +75,11 @@ class TradingStrategy(ABC):
         # print(f"===== 啟動回測引擎: {product} =====")
 
         # 1. 計算數據撈取範圍
-        data_fetch_start = self.start_time - self.lookback_days
+        data_fetch_start = self.start_time - self.lookback_tickets
 
         # 2. 獲取並準備數據
-        df = binance_kline_dao.get_kline(self.product, Client.KLINE_INTERVAL_15MINUTE, data_fetch_start, self.end_time)
+        df = self.binance_svc.get_historical_klines_df(self.product, Client.KLINE_INTERVAL_15MINUTE, data_fetch_start,
+                                                       self.end_time)
         df.set_index('start_time')
         self.prepare_data(self.initial_capital, df, self.other_args)
 
