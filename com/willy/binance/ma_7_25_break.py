@@ -31,3 +31,11 @@ def lambda_handler(event, context):
                                            maStrategy.trade_detail)
         print(maStrategy.trade_detail)
         line_svc.send_message(line_user_id, maStrategy.trade_detail)
+    else:
+        line_svc.send_message(line_user_id,
+                              f"datetime[{type_util.datetime_to_str(datetime.datetime.now(), "%Y%m%d%H%M")}] not trigger trade")
+
+    return {
+        'statusCode': 200,
+        'body': 'Hello from Lambda Container!'
+    }
