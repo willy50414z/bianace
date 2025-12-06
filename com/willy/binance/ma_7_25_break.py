@@ -5,7 +5,7 @@ from binance import Client
 
 from com.willy.binance.config.config_util import config_util
 from com.willy.binance.enums.binance_product import BinanceProduct
-from com.willy.binance.service import trade_svc, line_svc
+from com.willy.binance.service import trade_svc, telegram_svc
 from com.willy.binance.strategy.moving_average_strategy import MovingAverageStrategy
 from com.willy.binance.util import type_util
 
@@ -30,10 +30,10 @@ def lambda_handler(event, context):
                                            trade_record,
                                            maStrategy.trade_detail)
         print(maStrategy.trade_detail)
-        line_svc.send_message(line_user_id, maStrategy.trade_detail)
+        telegram_svc.push_message(message=maStrategy.trade_detail)
     else:
-        line_svc.send_message(line_user_id,
-                              f"datetime[{type_util.datetime_to_str(datetime.datetime.now(), "%Y%m%d%H%M")}] not trigger trade")
+        telegram_svc.push_message(message=
+                                  f"datetime[{type_util.datetime_to_str(datetime.datetime.now(), "%Y/%m/%d %H:%M:%S")}] not trigger trade")
 
     return {
         'statusCode': 200,
