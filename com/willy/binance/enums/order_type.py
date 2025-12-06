@@ -1,14 +1,15 @@
 from enum import Enum
 
-from binance import SIDE_BUY, SIDE_SELL
+from binance import ORDER_TYPE_LIMIT, ORDER_TYPE_MARKET, ORDER_TYPE_STOP_LOSS
 
 
-class TradeType(Enum):
+class OrderType(Enum):
     def __init__(self, value, bianace_type):
         # 注意：Enum 成員的 value 必須作為第一個參數傳入
         self._value_ = value
         # 儲存額外的屬性
         self.bianace_type = bianace_type
 
-    BUY = (1, SIDE_BUY)
-    SELL = (2, SIDE_SELL)
+    MARKET = (1, ORDER_TYPE_MARKET)
+    LIMIT = (2, ORDER_TYPE_LIMIT)
+    STOP_LOSS = (3, ORDER_TYPE_STOP_LOSS)

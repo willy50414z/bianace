@@ -1,12 +1,13 @@
 import datetime
 import functools
+import logging
 from datetime import timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import List, Optional
 
 import pandas as pd
-from binance import Client
+from binance import Client, ORDER_TYPE_MARKET, ORDER_TYPE_LIMIT, TIME_IN_FORCE_GTC, ORDER_TYPE_STOP_LOSS
 from pandas import DataFrame
 
 from com.willy.binance.config.config_util import config_util
@@ -16,8 +17,11 @@ from com.willy.binance.dto.commission_order import CommissionOrder
 from com.willy.binance.dto.futures_account_info import FuturesAccountInfo
 from com.willy.binance.dto.position_info import PositionInfo
 from com.willy.binance.dto.time_series_dto import TimeSeriesDto
+from com.willy.binance.enums.api_user import ApiUser
 from com.willy.binance.enums.binance_product import BinanceProduct
 from com.willy.binance.enums.currency import Currency
+from com.willy.binance.enums.order_type import OrderType
+from com.willy.binance.enums.trade_type import TradeType
 from com.willy.binance.enums.transfer_type import TransferType
 from com.willy.binance.util import type_util
 
@@ -29,9 +33,10 @@ def parse_datetime_row(row):
 
 
 class BinanceSvc:
-    config = config_util("binance.acct.hedgebuy")
 
-    client = Client(config.get("apikey"), config.get("privatekey"))
+    def __init__(self, api_user: ApiUser = ApiUser.HEDGE_BUY, is_demo: bool = True, is_testnet: bool = True):
+        self.config = config_util("binance.acct." + api_user.acct_name)
+        self.client = Client(self.config.get("apikey"), self.config.get("privatekey"), demo=is_demo, testnet=is_testnet)
 
     def get_historical_klines(self, binance_product: BinanceProduct, kline_interval=Client.KLINE_INTERVAL_1DAY,
                               start_date: datetime = type_util.str_to_date("20250101"),
@@ -145,7 +150,7 @@ class BinanceSvc:
         except Exception as e:
             raise Exception(f"取得帳戶資訊失敗: {e}")
 
-    def get_positions(self, symbol: Optional[str] = None) -> List[PositionInfo]:
+    def get_futures_positions(self, symbol: Optional[str] = None) -> List[PositionInfo]:
         """
         取得持有倉位
         參數:
@@ -201,23 +206,129 @@ class BinanceSvc:
             {'open': float, 'high': float, 'low': float, 'close': float, 'vol': float, 'number_of_trade': float})
         return df
 
+    def create_test_spot_order(self, binance_product: BinanceProduct, trade_type: TradeType, order_type: OrderType,
+                               unit: Decimal, price: str = None):
+        req_msg = f"product[{binance_product}]trade_type[{trade_type.name}]order_type[{order_type.name}]qty[{unit}]"
+        try:
+            if order_type.bianace_type == ORDER_TYPE_MARKET:  # 市價單
+                result = self.client.create_test_order(
+                    symbol=binance_product.name,
+                    side=trade_type.bianace_type,
+                    type=order_type.bianace_type,
+                    quantity=unit
+                )
+            elif order_type.bianace_type == ORDER_TYPE_LIMIT or order_type.bianace_type == ORDER_TYPE_STOP_LOSS:  # 限價單
+                if price is None or not price[len(price) - 3:].startswith("."):
+                    raise ValueError(f"ORDER_TYPE_LIMIT need to provide price format '6000.00', price[{price}]")
+                result = self.client.create_test_order(
+                    symbol=binance_product.name,
+                    side=trade_type.bianace_type,
+                    type=order_type.bianace_type,
+                    timeInForce=TIME_IN_FORCE_GTC,  # GTC: Good Till Cancel (掛單直到取消)
+                    quantity=unit,
+                    price=price  # 必須是字串格式，並符合價格精度
+                )
+            else:
+                raise ValueError(f"ORDER_TYPE is not in {OrderType.value}")
+            logging.info(f"[create_test_spot_order] success, {req_msg}")
+            return result
+        except Exception as e:
+            logging.error(f"[create_test_spot_order] fail, {req_msg}", e)
+
+    def create_test_future_order(self, binance_product: BinanceProduct, trade_type: TradeType, order_type: OrderType,
+                                 unit: Decimal, price: str = None):
+        req_msg = f"product[{binance_product}]trade_type[{trade_type.name}]order_type[{order_type.name}]qty[{unit}]"
+        try:
+            if order_type.bianace_type == ORDER_TYPE_MARKET:  # 市價單
+                result = self.client.futures_create_test_order(
+                    symbol=binance_product.name,
+                    side=trade_type.bianace_type,
+                    type=order_type.bianace_type,
+                    quantity=unit
+                )
+            elif order_type.bianace_type == ORDER_TYPE_LIMIT or order_type.bianace_type == ORDER_TYPE_STOP_LOSS:  # 限價單
+                if price is None or not price[len(price) - 3:].startswith("."):
+                    raise ValueError(f"ORDER_TYPE_LIMIT need to provide price format '6000.00', price[{price}]")
+                result = self.client.futures_create_test_order(
+                    symbol=binance_product.name,
+                    side=trade_type.bianace_type,
+                    type=order_type.bianace_type,
+                    timeInForce=TIME_IN_FORCE_GTC,  # GTC: Good Till Cancel (掛單直到取消)
+                    quantity=unit,
+                    price=price  # 必須是字串格式，並符合價格精度
+                )
+            else:
+                raise ValueError(f"ORDER_TYPE is not in {OrderType.value}")
+            logging.info(f"[create_test_future_order] success, {req_msg}")
+            return result
+        except Exception as e:
+            logging.error(f"[create_test_future_order] fail, {req_msg}", e)
+
+    def create_future_order(self, binance_product: BinanceProduct, trade_type: TradeType, order_type: OrderType,
+                            unit: Decimal, price: str = None):
+        req_msg = f"product[{binance_product}]trade_type[{trade_type.name}]order_type[{order_type.name}]qty[{unit}]"
+        try:
+            if order_type.bianace_type == ORDER_TYPE_MARKET:  # 市價單
+                result = self.client.futures_create_order(
+                    symbol=binance_product.name,
+                    side=trade_type.bianace_type,
+                    type=order_type.bianace_type,
+                    quantity=unit
+                )
+            elif order_type.bianace_type == ORDER_TYPE_LIMIT or order_type.bianace_type == ORDER_TYPE_STOP_LOSS:  # 限價單
+                if price is None or not price[len(price) - 3:].startswith("."):
+                    raise ValueError(f"ORDER_TYPE_LIMIT need to provide price format '6000.00', price[{price}]")
+                result = self.client.futures_create_order(
+                    symbol=binance_product.name,
+                    side=trade_type.bianace_type,
+                    type=order_type.bianace_type,
+                    timeInForce=TIME_IN_FORCE_GTC,  # GTC: Good Till Cancel (掛單直到取消)
+                    quantity=unit,
+                    price=price  # 必須是字串格式，並符合價格精度
+                )
+            else:
+                raise ValueError(f"ORDER_TYPE is not in {OrderType.value}")
+            logging.info(f"[create_future_order] success, {req_msg}")
+            return result
+        except Exception as e:
+            logging.error(f"[create_future_order] fail, {req_msg}", e)
+
+    def change_futures_leverage(self, binance_product: BinanceProduct, leverage: int):
+        req_msg = f"product[{binance_product}]leverage[{leverage}]"
+        try:
+            result = self.client.futures_change_leverage(
+                symbol=binance_product.name,
+                leverage=leverage
+            )
+            logging.info(f"[change_futures_leverage] success, {req_msg}")
+            return result
+        except Exception as e:
+            logging.error(f"[change_futures_leverage] fail, {req_msg}", e)
+
 
 if __name__ == '__main__':
-    service = BinanceSvc()
-    print(service.get_klines(BinanceProduct.BTCUSDT, Client.KLINE_INTERVAL_15MINUTE,
-                             type_util.str_to_date_min("202512040500"), datetime.datetime.now()))
+    service = BinanceSvc(ApiUser.WILLY_MOCK, is_demo=False)
+    result = service.create_future_order(BinanceProduct.BTCUSDT, TradeType.BUY, order_type=OrderType.LIMIT,
+                                         unit=Decimal("0.01"), price="89856.00")
+    print(result)
+
+    # print(service.get_klines(BinanceProduct.BTCUSDT, Client.KLINE_INTERVAL_15MINUTE,
+    #                          type_util.str_to_date_min("202512040500"), datetime.datetime.now()))
     # # U本位/幣本位 轉帳
     # service.universal_transfer(TransferType.MAIN_UMFUTURE, Currency.USDC, 0.2)
     # account_info = service.get_account_info()
     # print(account_info)
     #
-    # # 取得所有持倉（使用獨立方法）
-    # positions = service.get_positions()
-    # print(positions)
+    # 取得所有持倉（使用獨立方法）
+    futures_positions = service.get_futures_positions()
+    print(futures_positions)
     #
     # # 取得特定交易對的持倉
     # # btc_positions = service.get_positions(symbol='BTCUSDT')
     #
-    # # 取得所有委託單
-    # orders = service.get_open_orders()
-    # print(orders)
+    # 取得所有委託單
+    orders = service.get_open_orders()
+    opened_order_log = ""
+    for order in orders:
+        opened_order_log = f"{opened_order_log}\r\nproduct[{order.symbol}]side[{order.side}]unit[{order.orig_qty}]price[{order.price}]"
+    print(opened_order_log)
